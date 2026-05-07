@@ -1,0 +1,116 @@
+{
+  "version": "2.0",
+  "last_updated": "2026-05-07",
+  "description": "Carrum Health Care Team SOP extraction schema for protocol-driven patient routing",
+  "patient": {
+    "name": "string | null",
+    "case_type": "joint | bariatric | null",
+    "case_id": "string | null"
+  },
+  "clinical_flags": {
+    "general": {
+      "dental_visit_within_6_months": {
+        "value": "boolean | null",
+        "source_quote": "string | null",
+        "confidence": "high | medium | low | null"
+      },
+      "pending_dental_work": {
+        "value": "boolean | null",
+        "source_quote": "string | null",
+        "confidence": "high | medium | low | null"
+      }
+    },
+    "joint": {
+      "active_smoker": {
+        "value": "boolean | null",
+        "source_quote": "string | null",
+        "confidence": "high | medium | low | null"
+      },
+      "quit_smoking_within_3_months": {
+        "value": "boolean | null",
+        "source_quote": "string | null",
+        "confidence": "high | medium | low | null"
+      },
+      "attempted_pt": {
+        "value": "boolean | null",
+        "source_quote": "string | null",
+        "confidence": "high | medium | low | null",
+        "pt_details": {
+          "session_count": "integer | null",
+          "duration_weeks": "integer | null",
+          "provider_name": "string | null",
+          "was_formal": "boolean | null"
+        }
+      },
+      "hba1c_value": {
+        "value": "float | null",
+        "source_quote": "string | null",
+        "confidence": "high | medium | low | null",
+        "test_date": "string | null"
+      },
+      "daily_opioid_use": {
+        "value": "boolean | null",
+        "source_quote": "string | null",
+        "confidence": "high | medium | low | null"
+      },
+      "opioid_duration_months": {
+        "value": "integer | null",
+        "source_quote": "string | null",
+        "confidence": "high | medium | low | null",
+        "medication_name": "string | null",
+        "dosage": "string | null"
+      }
+    },
+    "bariatric": {
+      "prior_weight_loss_surgery": {
+        "value": "boolean | null",
+        "source_quote": "string | null",
+        "confidence": "high | medium | low | null",
+        "surgery_type": "string | null",
+        "surgery_year": "integer | null",
+        "surgery_location": "string | null"
+      },
+      "endoscopy_within_3_months": {
+        "value": "boolean | null",
+        "source_quote": "string | null",
+        "confidence": "high | medium | low | null"
+      },
+      "has_registered_dietician": {
+        "value": "boolean | null",
+        "source_quote": "string | null",
+        "confidence": "high | medium | low | null",
+        "rd_details": "string | null"
+      }
+    }
+  },
+  "additional_context": {
+    "comorbidities": "string[] | []",
+    "chronic_infections": "string | null",
+    "history_of_blood_clots": "boolean | null",
+    "oxygen_dependence": "boolean | null",
+    "substance_use": "boolean | null",
+    "current_medications": "string[] | []",
+    "mobility_status": "string | null"
+  },
+  "sop_recommendations": [
+    {
+      "id": "string",
+      "category": "General | Joint | Bariatric",
+      "finding": "string",
+      "case_status": "Action Required | Deferred | Ineligible | Review | High Complexity | Revision Case | Hold",
+      "action": "string",
+      "triggered_by_flags": "string[]",
+      "priority": "integer"
+    }
+  ],
+  "case_summary": "string | null",
+  "overall_case_status": "Action Required | Deferred | Ineligible | Review | High Complexity | Revision Case | Hold | Clear | null",
+  "extraction_metadata": {
+    "extraction_confidence": "high | medium | low",
+    "requires_human_review": "boolean",
+    "review_reason": "string | null",
+    "missing_flags": "string[]",
+    "ambiguous_flags": "string[]",
+    "null_flag_count": "integer"
+  }
+}

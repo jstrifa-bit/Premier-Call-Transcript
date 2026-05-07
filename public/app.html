@@ -176,6 +176,31 @@
   .step-status.flagged { background: var(--red-soft); color: #991b1b; }
   .step-status.done { background: var(--green-soft); color: #166534; }
 
+  /* Clinical extraction card */
+  .extraction-section { margin-top: 12px; }
+  .extraction-section + .extraction-section { padding-top: 12px; border-top: 1px dashed var(--border); }
+  .extraction-section h3 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); }
+  .flag-row { display: grid; grid-template-columns: minmax(160px, 1fr) auto auto; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); align-items: start; }
+  .flag-row + .flag-row { margin-top: 6px; }
+  .flag-name { font-family: ui-monospace, monospace; font-size: 12px; color: var(--text-2); }
+  .flag-name strong { color: var(--text); display: block; font-family: inherit; font-size: 13px; font-weight: 600; }
+  .flag-quote { grid-column: 1 / -1; font-size: 12px; color: var(--text-3); font-style: italic; padding: 6px 8px; background: white; border-left: 3px solid var(--brand-2); border-radius: 4px; margin-top: 4px; }
+  .flag-value { font-size: 13px; font-weight: 600; padding: 2px 8px; border-radius: 6px; background: white; border: 1px solid var(--border); white-space: nowrap; }
+  .flag-value.true  { background: var(--green-soft); color: #166534; border-color: #86efac; }
+  .flag-value.false { background: var(--red-soft);   color: #991b1b; border-color: #fca5a5; }
+  .flag-value.null  { background: var(--surface-2);  color: var(--text-3); }
+  .flag-conf { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: .04em; }
+  .flag-conf.high   { background: var(--green-soft);  color: #166534; }
+  .flag-conf.medium { background: var(--yellow-soft); color: #854d0e; }
+  .flag-conf.low    { background: var(--red-soft);    color: #991b1b; }
+  .flag-conf.null   { background: var(--surface-2);   color: var(--text-3); }
+  .review-banner { margin: 10px 0; padding: 10px 12px; border-radius: 8px; background: var(--orange-soft); color: #9a3412; border: 1px solid #fdba74; font-size: 13px; font-weight: 600; }
+  .extraction-meta { margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); font-size: 12px; color: var(--text-2); }
+  .extraction-meta strong { color: var(--text); }
+  .additional-context { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; font-size: 12px; }
+  .additional-context div { background: white; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+  .additional-context span { color: var(--text-3); display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 2px; }
+
   /* AI evaluation confidence pill */
   .confidence { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; border: 1px solid transparent; cursor: help; }
   .confidence.green  { background: var(--green-soft);  color: #166534; border-color: #86efac; }
@@ -760,10 +785,139 @@ function renderResults(r){
           <p><strong>Action:</strong> ${escapeHtml(f.action||"")}</p>
         </div>`).join("")}
     </div>
+
+    <div class="card" id="extractionCard"></div>
   `;
   $("resultsContainer").innerHTML = html;
   renderSteps();
+  renderExtraction(r);
   runEvaluation(r);
+}
+
+function flagValueClass(v){
+  if (v === true) return "true";
+  if (v === false) return "false";
+  if (v == null) return "null";
+  return "";
+}
+function flagValueLabel(v){
+  if (v === true) return "true";
+  if (v === false) return "false";
+  if (v == null) return "—";
+  return String(v);
+}
+function flagConfClass(c){ return c == null ? "null" : c; }
+function flagConfLabel(c){ return c == null ? "—" : c; }
+
+function flagRow(name, label, flag){
+  if (!flag) flag = {};
+  const v = flag.value;
+  const conf = flag.confidence;
+  const quote = flag.source_quote;
+  const extras = [];
+  if (flag.pt_details) {
+    const pd = flag.pt_details;
+    const bits = [];
+    if (pd.session_count != null) bits.push(`${pd.session_count} sessions`);
+    if (pd.duration_weeks != null) bits.push(`${pd.duration_weeks} wks`);
+    if (pd.provider_name) bits.push(pd.provider_name);
+    if (pd.was_formal != null) bits.push(pd.was_formal ? "formal" : "informal");
+    if (bits.length) extras.push(bits.join(" / "));
+  }
+  if (flag.test_date) extras.push(`tested ${flag.test_date}`);
+  if (flag.medication_name) extras.push(flag.medication_name + (flag.dosage ? ` ${flag.dosage}` : ""));
+  if (flag.surgery_type) extras.push(`${flag.surgery_type}${flag.surgery_year ? " " + flag.surgery_year : ""}${flag.surgery_location ? " @ " + flag.surgery_location : ""}`);
+  if (flag.rd_details) extras.push(flag.rd_details);
+
+  return `
+    <div class="flag-row">
+      <div class="flag-name"><strong>${escapeHtml(label)}</strong>${escapeHtml(name)}${extras.length ? ` <span style="color:var(--text-3); font-size:11px;">- ${escapeHtml(extras.join(" - "))}</span>` : ""}</div>
+      <div class="flag-value ${flagValueClass(v)}">${escapeHtml(flagValueLabel(v))}</div>
+      <div class="flag-conf ${flagConfClass(conf)}">${escapeHtml(flagConfLabel(conf))}</div>
+      ${quote ? `<div class="flag-quote">"${escapeHtml(quote)}"</div>` : ""}
+    </div>`;
+}
+
+const FLAG_LABELS = {
+  general: {
+    dental_visit_within_6_months: "Dental visit within 6 months",
+    pending_dental_work: "Pending dental work"
+  },
+  joint: {
+    active_smoker: "Active smoker",
+    quit_smoking_within_3_months: "Quit smoking <3 months ago",
+    attempted_pt: "Attempted PT",
+    hba1c_value: "HbA1c value",
+    daily_opioid_use: "Daily opioid use",
+    opioid_duration_months: "Opioid duration (months)"
+  },
+  bariatric: {
+    prior_weight_loss_surgery: "Prior weight-loss surgery",
+    endoscopy_within_3_months: "Endoscopy within 3 months",
+    has_registered_dietician: "Has registered dietician"
+  }
+};
+
+function renderExtraction(r){
+  const card = $("extractionCard"); if (!card) return;
+  const ex = r.extraction;
+  if (!ex) {
+    card.innerHTML = `<h2>Clinical Extraction</h2><div class="muted" style="font-size:13px;">${r.extraction_error ? "Extraction unavailable: " + escapeHtml(r.extraction_error) : "Extraction is unavailable in local mode (requires ANTHROPIC_API_KEY)."}</div>`;
+    return;
+  }
+  const caseType = (ex.patient && ex.patient.case_type) || (r.crm_record && (r.crm_record.case_type || "").toLowerCase());
+  const flags = ex.clinical_flags || {};
+  const sections = [];
+
+  // General always shown
+  if (flags.general) {
+    sections.push(`<div class="extraction-section"><h3>General</h3>${
+      Object.entries(FLAG_LABELS.general).map(([k, label]) => flagRow(k, label, flags.general[k])).join("")
+    }</div>`);
+  }
+  // Case-type-specific
+  if (caseType === "joint" && flags.joint) {
+    sections.push(`<div class="extraction-section"><h3>Joint</h3>${
+      Object.entries(FLAG_LABELS.joint).map(([k, label]) => flagRow(k, label, flags.joint[k])).join("")
+    }</div>`);
+  }
+  if (caseType === "bariatric" && flags.bariatric) {
+    sections.push(`<div class="extraction-section"><h3>Bariatric</h3>${
+      Object.entries(FLAG_LABELS.bariatric).map(([k, label]) => flagRow(k, label, flags.bariatric[k])).join("")
+    }</div>`);
+  }
+
+  // Additional context
+  const ac = ex.additional_context || {};
+  const acItems = [];
+  if (ac.comorbidities && ac.comorbidities.length) acItems.push(`<div><span>Comorbidities</span>${escapeHtml(ac.comorbidities.join(", "))}</div>`);
+  if (ac.current_medications && ac.current_medications.length) acItems.push(`<div><span>Medications</span>${escapeHtml(ac.current_medications.join(", "))}</div>`);
+  if (ac.chronic_infections) acItems.push(`<div><span>Chronic infections</span>${escapeHtml(ac.chronic_infections)}</div>`);
+  if (ac.history_of_blood_clots != null) acItems.push(`<div><span>Blood clots history</span>${ac.history_of_blood_clots ? "Yes" : "No"}</div>`);
+  if (ac.oxygen_dependence != null) acItems.push(`<div><span>Oxygen dependence</span>${ac.oxygen_dependence ? "Yes" : "No"}</div>`);
+  if (ac.substance_use != null) acItems.push(`<div><span>Substance use</span>${ac.substance_use ? "Yes" : "No"}</div>`);
+  if (ac.mobility_status) acItems.push(`<div><span>Mobility</span>${escapeHtml(ac.mobility_status)}</div>`);
+  const acBlock = acItems.length
+    ? `<div class="extraction-section"><h3>Additional Context</h3><div class="additional-context">${acItems.join("")}</div></div>`
+    : "";
+
+  // Metadata + review banner
+  const meta = ex.extraction_metadata || {};
+  const reviewBanner = meta.requires_human_review
+    ? `<div class="review-banner">Requires human review${meta.review_reason ? ": " + escapeHtml(meta.review_reason) : ""}</div>`
+    : "";
+  const metaBlock = `
+    <div class="extraction-meta">
+      <div><strong>Extraction confidence:</strong> ${escapeHtml(meta.extraction_confidence || "unknown")} - <strong>Null flags:</strong> ${meta.null_flag_count != null ? meta.null_flag_count : "?"}${meta.ambiguous_flags && meta.ambiguous_flags.length ? ` - <strong>Ambiguous:</strong> ${escapeHtml(meta.ambiguous_flags.join(", "))}` : ""}${meta.missing_flags && meta.missing_flags.length ? ` - <strong>Missing:</strong> ${escapeHtml(meta.missing_flags.join(", "))}` : ""}</div>
+    </div>`;
+
+  card.innerHTML = `
+    <h2>Clinical Extraction</h2>
+    <div class="muted" style="font-size:12px; margin-bottom:8px;">Per-flag values, source quotes, and extraction confidence (high / medium / low) per the extraction schema.</div>
+    ${reviewBanner}
+    ${sections.join("")}
+    ${acBlock}
+    ${metaBlock}`;
 }
 
 function confidenceClass(score){

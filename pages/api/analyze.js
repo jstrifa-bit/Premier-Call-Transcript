@@ -1,5 +1,6 @@
 import { invokeLocalAnalysis } from "../../lib/analyze-local.js";
 import { invokeClaudeAnalysis } from "../../lib/analyze-claude.js";
+import { invokeExtraction } from "../../lib/extract.js";
 import { findCrmByQuery, findCrmFromTranscript } from "../../lib/data.js";
 
 export const config = { api: { bodyParser: { sizeLimit: "2mb" } } };
@@ -13,17 +14,23 @@ export default async function handler(req, res) {
   let crm = findCrmByQuery({ name: patient_name, patient_id });
   if (!crm) crm = findCrmFromTranscript(transcript);
 
-  let result;
-  let claude_error = null;
-  if (process.env.ANTHROPIC_API_KEY) {
-    try {
-      result = await invokeClaudeAnalysis(transcript, crm);
-    } catch (e) {
-      claude_error = e.message;
-      result = invokeLocalAnalysis(transcript, crm);
-    }
-  } else {
+  // Run analysis and extraction in parallel when Claude is available.
+  const hasClaude = !!process.env.ANTHROPIC_API_KEY;
+  const analysisPromise = hasClaude
+    ? invokeClaudeAnalysis(transcript, crm).catch(e => ({ __error: e.message }))
+    : Promise.resolve(invokeLocalAnalysis(transcript, crm));
+  const extractionPromise = hasClaude
+    ? invokeExtraction(transcript, crm).catch(e => ({ __error: e.message }))
+    : Promise.resolve({ __error: "extraction requires ANTHROPIC_API_KEY" });
+
+  const [analysisRaw, extractionRaw] = await Promise.all([analysisPromise, extractionPromise]);
+
+  let result, claude_error = null;
+  if (analysisRaw.__error) {
+    claude_error = analysisRaw.__error;
     result = invokeLocalAnalysis(transcript, crm);
+  } else {
+    result = analysisRaw;
   }
 
   const out = {
@@ -36,8 +43,10 @@ export default async function handler(req, res) {
     findings: result.findings,
     overall_disposition: result.overall_disposition,
     next_steps: result.next_steps,
+    extraction: extractionRaw.__error ? null : extractionRaw,
     elapsed_ms: Date.now() - started
   };
   if (claude_error) out.claude_error = claude_error;
+  if (extractionRaw.__error) out.extraction_error = extractionRaw.__error;
   res.status(200).json(out);
 }
