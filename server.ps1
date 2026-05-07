@@ -289,25 +289,21 @@ function Invoke-LocalAnalysis {
 
 function Build-LocalSummary {
     param($Crm, $Findings, [string]$Transcript)
+    # Summary is grounded in the transcript only; CRM is intentionally not referenced.
     $sentences = @()
-    if ($Crm) {
-        $sentences += "$($Crm.name) is a $($Crm.age)-year-old $($Crm.sex) from $($Crm.location) presenting for a $($Crm.case_type) case (BMI $($Crm.bmi); primary diagnosis: $($Crm.primary_dx))."
-    } else {
-        $sentences += "Patient identifiers were not found in the CRM, so this summary is based on the transcript alone."
-    }
     if ($Findings -and $Findings.Count -gt 0) {
         $topics = @()
         foreach ($f in $Findings) {
             if ($f.evidence) { $topics += $f.evidence } else { $topics += $f.finding }
         }
-        $sentences += "Key clinical points raised: " + ($topics -join "; ") + "."
+        $sentences += "Key clinical points raised in the call: " + ($topics -join "; ") + "."
     } else {
-        $sentences += "No SOP triggers were detected in the discussion."
+        $sentences += "No SOP triggers were detected in this call."
     }
     $a1c = Find-A1cValue -Text $Transcript
     if ($a1c) { $sentences += "Most recent HbA1c referenced: $a1c." }
     if ($Findings.Count -ge 2) {
-        $sentences += "Multiple workup gaps were identified during the call - see the SOP findings below for the full list."
+        $sentences += "Multiple workup gaps were identified - see the SOP findings below for the full list."
     } else {
         $sentences += "Disposition is driven by the findings detailed below."
     }
@@ -367,16 +363,19 @@ function Invoke-ClaudeAnalysis {
         "- $($_.id) [$($_.category) / $($_.case_status)] applies_to=[$applies]: finding='$($_.finding)' | trigger_logic='$($_.trigger_logic)' | action='$($_.action)'"
     }) -join "`n"
 
-    $crmBlock = if ($CrmRecord) {
-        "Patient (from CRM): $($CrmRecord.name), $($CrmRecord.age)$($CrmRecord.sex), $($CrmRecord.location). Case type: $($CrmRecord.case_type). BMI: $($CrmRecord.bmi). Dx: $($CrmRecord.primary_dx)."
-    } else { "Patient not found in CRM. Use transcript only." }
+    # Case type is the ONLY thing we pass from CRM, and only for applies_to gating.
+    # Demographic and clinical CRM fields (name, age, sex, BMI, dx, location) are
+    # intentionally withheld so the LLM cannot reference them in the output.
+    $crmBlock = if ($CrmRecord -and $CrmRecord.case_type) {
+        "Case type (use ONLY to gate which SOPs apply via their applies_to lists; do not reference this field in patient_summary or recommendation): $($CrmRecord.case_type)"
+    } else { "Case type unknown - apply general SOPs only." }
 
     $system = @"
 You are a clinical data extraction assistant for the Carrum Health Care Team.
 Compare the call transcript against the SOPs and return STRICT JSON with this shape:
 {
-  "patient_summary": "A 3-4 sentence clinical summary of the call. Cover who the patient is (age/sex/case type from CRM if available), the chief concern, key clinical facts mentioned (BMI, prior surgeries, comorbidities, medications, lifestyle), and any red flags. Plain prose - no bullet points.",
-  "recommendation": "A 2-3 sentence narrative recommendation that names the specific SOPs that drove the disposition (cite their IDs like BAR-002) and tells the Specialist what to do next in clinical terms.",
+  "patient_summary": "A 3-4 sentence clinical summary GROUNDED ENTIRELY IN THE TRANSCRIPT. Cover the chief concern, key clinical facts the patient or specialist actually said (BMI if stated in the call, prior surgeries mentioned, comorbidities discussed, medications named, lifestyle factors raised), and any red flags raised in conversation. Plain prose, no bullet points. DO NOT reference, paraphrase, or infer from CRM data, demographics, or any patient information not stated in the transcript itself.",
+  "recommendation": "A 2-3 sentence narrative recommendation that names the specific SOPs that drove the disposition (cite their IDs like BAR-002) and tells the Specialist what to do next in clinical terms. Reference only what was discussed in the transcript - DO NOT mention CRM data, demographic context, or facts not present in the call.",
   "findings": [
     { "sop_id": "BAR-002", "title": "...", "category": "...", "finding": "...", "status": "...", "action": "...", "evidence": "short quoted snippet from transcript" }
   ],
