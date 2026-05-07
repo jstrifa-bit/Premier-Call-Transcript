@@ -722,10 +722,10 @@ function Handle-Request {
             return
         }
 
-        # --- static ---------------------------------------------------------
+        # --- static (served from /public, mirrors Next.js conventions) -----
         if ($method -eq "GET") {
             $rel = if ($path -eq "/" -or $path -eq "") { "/app.html" } else { $path }
-            $file = Join-Path $ScriptDir ($rel.TrimStart("/"))
+            $file = Join-Path (Join-Path $ScriptDir "public") ($rel.TrimStart("/"))
             if ((Test-Path $file) -and (Get-Item $file).PSIsContainer -eq $false) {
                 Write-Static $resp $file; return
             }

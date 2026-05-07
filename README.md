@@ -6,20 +6,28 @@ Designed to *feel* like an internal tool integrated with Salesforce / Google Mee
 
 ## Quick start
 
+Two equivalent dev modes — pick whichever your machine has set up.
+
+**Next.js (deployable to Vercel):**
+
+```bash
+npm install
+npm run dev
+# open http://localhost:4321
+```
+
+**PowerShell 5.1 (Windows, no Node required):**
+
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File server.ps1
-# then open http://localhost:4321/app.html
+# open http://localhost:4321
 ```
 
-To enable AI engines:
+Both modes share `sops.json`, `crm.json`, and `public/app.html`. They expose the same `/api/*` routes and produce the same JSON contract.
 
-```powershell
-Copy-Item .env.example .env
-# edit .env, add ANTHROPIC_API_KEY (analysis) and/or GEMINI_API_KEY (confidence scoring)
-# then restart the server
-```
+To enable AI engines, copy `.env.example` to `.env` (or `.env.local` for Next.js) and add `ANTHROPIC_API_KEY` and/or `GEMINI_API_KEY`. For Vercel deployment, set the same vars in the Vercel project's Environment Variables. Without `ANTHROPIC_API_KEY` the server uses a deterministic local heuristic. Without `GEMINI_API_KEY` the confidence-score panel is hidden.
 
-Without `ANTHROPIC_API_KEY` the server uses a deterministic local heuristic. Without `GEMINI_API_KEY` the confidence-score panel is hidden.
+**SOP edits do not persist on Vercel** (read-only filesystem). Edits work in local dev. Add Vercel KV or Blob storage if production persistence is needed.
 
 ## What's in the box
 
