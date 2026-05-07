@@ -13,18 +13,29 @@ Three things on top of plain transcript-analysis:
 
 ## Run / dev
 
-PowerShell 5.1 only — no Node/Python/.NET CLI. Backend is `System.Net.HttpListener`, no package manager, no build step.
+**Two equivalent backends share the same data files and `/api/*` contract.** Pick whichever your machine has set up:
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File server.ps1
-# then open http://localhost:4321/app.html
+**Next.js (deployable to Vercel — production target):**
+```bash
+npm install
+npm run dev    # http://localhost:4321
 ```
 
-Or via Claude Code preview using `.claude/launch.json` config name `carrum-analyzer`.
+**PowerShell 5.1 (Windows local-only fallback, no Node required):**
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File server.ps1
+# http://localhost:4321
+```
 
-To enable Claude-powered analysis instead of the local heuristic: copy `.env.example` to `.env`, set `ANTHROPIC_API_KEY=sk-ant-...`, restart. Engine is selected at server startup based on whether the key is present.
+Both serve `public/app.html` at `/` and read `sops.json` / `crm.json` from the repo root. **The PowerShell server does NOT implement `/api/extract`** — extraction is a Next.js-only route. Use `npm run dev` or deploy to Vercel if you need it.
 
-**Restart pitfall:** `server.ps1` reads `sops.json`/`crm.json`/`.env` from `$PSScriptRoot`. Always launch with an absolute path — `-File C:\...\Call Transcript Analyzer\server.ps1` — or set the working directory explicitly. Starting with a relative path can leave the listener bound to a stale folder's data.
+To enable AI engines: copy `.env.example` to `.env` (or `.env.local` for Next.js), set `ANTHROPIC_API_KEY` and `GEMINI_API_KEY`. **For Vercel deployment, set the same vars in the Vercel project's Environment Variables — Production scope MUST be checked, and a redeploy is required after adding them** (env vars are baked at build/start, not picked up live). Verify via `/api/health` which returns `engine` and `evaluator` flags.
+
+**PowerShell restart pitfall:** `server.ps1` reads `sops.json`/`crm.json`/`.env` from `$PSScriptRoot`. Always launch with an absolute path — `-File C:\...\Call Transcript Analyzer\server.ps1` — or set the working directory explicitly. Starting with a relative path can leave the listener bound to a stale folder's data.
+
+**Vercel deployment caveats:**
+- **SOP edits do not persist on Vercel** — the function filesystem is read-only. `lib/data.js#writeSops` throws `READONLY` when `process.env.VERCEL` is set, and the SOP CRUD routes (`POST /api/sops`, `PUT /api/sops/{id}`, `DELETE /api/sops/{id}`) return 503 in production. Local dev still writes to `sops.json` normally.
+- The Anthropic key in the source-controlled `.env.txt` (now removed and gitignored via `.env.*`) was a near-miss during the initial repo push. Don't recreate that pattern. `.env.example` is the only `.env*` file allowed in the repo.
 
 ## Smoke tests (no test suite — use the 3 inline samples)
 
@@ -41,24 +52,31 @@ Claude mode may produce extra defensible findings; dispositions above must still
 ## Architecture
 
 ```
- app.html
+ public/app.html  (single SPA, served identically by both backends)
     │
-    │ SSO gate ─▶ POST /api/sso/signin (mock user)
+    │ SSO gate ─▶ POST /api/sso/signin
     │ Lookup    ─▶ POST /api/crm/lookup
-    │ Analyze   ─▶ POST /api/analyze ──┐
-    │ SOP CRUD  ─▶ /api/sops[/{id}]    │
-    │ Import    ─▶ POST /api/integrations/import   (mock pull from Five9 / Epic)
-    │ Export    ─▶ POST /api/integrations/export   (mock push to Salesforce / Epic / Outlook)
-    ▼                                  │
- server.ps1                            ▼
-    │                       ┌─ Invoke-ClaudeAnalysis (when ANTHROPIC_API_KEY set)
-    │  /api/analyze         ├─ Invoke-LocalAnalysis (fallback / default)
-    │                       └─ Get-OverallDisposition
-    │
-    ├─ sops.json   (read by /api/sops, written by SOP editor)
-    ├─ crm.json    (read by /api/crm/lookup and analyze)
-    └─ .env        (optional, gitignored)
+    │ Analyze   ─▶ POST /api/analyze            (fires analysis + extraction in parallel)
+    │ Extract   ─▶ POST /api/extract            (standalone, Next.js only)
+    │ Evaluate  ─▶ POST /api/evaluate           (Gemini scoring)
+    │ SOP CRUD  ─▶ /api/sops[/{id}]
+    │ Import    ─▶ POST /api/integrations/import   (Google Meet canned)
+    │ Export    ─▶ POST /api/integrations/export   (per-step, mock)
+    ▼
+ ┌────────────────────────────┬────────────────────────────┐
+ │ Next.js (pages/api/*.js)   │ server.ps1 (PowerShell)    │
+ │ - parity for all routes    │ - parity except /api/extract│
+ │ - lib/* for engines        │ - inline functions in .ps1 │
+ │ - serverless on Vercel     │ - HttpListener, local only │
+ └─────────────┬──────────────┴────────────┬───────────────┘
+               │                            │
+               ├─ sops.json (read by /api/sops; written in dev only)
+               ├─ crm.json (read by /api/crm/lookup and analyze)
+               ├─ schemas/extraction-schema.json (typed contract for /api/extract)
+               └─ .env / Vercel env vars
 ```
+
+The Next.js side is the production target; the PowerShell server is a Windows-local convenience that pre-dates the port. Keep their behaviors aligned when changing route logic — `lib/analyze-local.js` is a faithful port of `Invoke-LocalAnalysis`, including the regex guardrails per SOP id.
 
 The shared JSON contract returned by `/api/analyze` (consumed by `renderResults` in `app.html`):
 ```
@@ -74,6 +92,11 @@ Both engines must produce this shape. Changing it requires touching `Invoke-Loca
 
 A second optional engine evaluates the analysis after it renders:
 - `POST /api/evaluate` (Gemini) takes `{ transcript, patient_summary, recommendation, next_steps, findings, overall_disposition }` and returns `{ ok, evaluator, model, recommendation: { score, rationale }, next_steps: { score, rationale } }`. Scores are 0-100 with frontend color bands (red 0-50, yellow 51-75, green 76-100). The frontend fires this automatically after `renderResults` and paints pills in the Recommendation pane and Next Steps card headers.
+
+A third engine extracts structured clinical flags:
+- `POST /api/extract` (Claude) returns an object matching [schemas/extraction-schema.json](schemas/extraction-schema.json) — the schema's leaf values are TYPE HINTS (e.g. `"boolean | null"`); the extractor replaces them with concrete values plus per-flag `source_quote` and `confidence` (high / medium / low / null).
+- `POST /api/analyze` runs analysis and extraction **in parallel via `Promise.all`** and returns `extraction` inline. Extraction failure is tolerated: the analyze response still succeeds with `extraction: null` + `extraction_error: "..."`.
+- The frontend renders extraction in a "Clinical Extraction" card after Findings: per-category sections (General always, Joint or Bariatric per `case_type`), per-flag rows with value + confidence badges + source quote, an Additional Context grid, and a "Requires human review" orange banner when `extraction_metadata.requires_human_review` is true. This is **separate** from the section-level Gemini confidence pills — both coexist by design (Gemini scores the whole Recommendation/Next Steps, extractor confidences are per-flag).
 
 ## SOP schema (v2.0)
 
@@ -163,17 +186,27 @@ The Anthropic catch block reads `$_.Exception.Response.GetResponseStream()` to s
 
 ## Files
 
-| File | Purpose |
-|------|---------|
-| `server.ps1` | HTTP listener, all API routes, both analysis engines. Single source of truth for analysis logic. |
-| `app.html`   | Single-page UI (SSO gate, top bar, analyzer, SOP editor). No bundler, no framework. CDN libraries (mammoth, pdf.js) lazy-loaded only for `.docx`/`.pdf` upload. |
-| `sops.json`  | v2.0 SOP library under `rules[]` (8 rules: 1 General, 4 Joint, 3 Bariatric). Editable from the UI. |
-| `crm.json`   | Mock CRM (3 sample patients). Edit `name_aliases` to control which transcripts match. |
-| `samples/`   | Standalone sample transcripts (e.g. `sample-transcript.json`) for manual upload testing. |
-| `.env.example` | Template — copy to `.env` and add `ANTHROPIC_API_KEY` to enable Claude mode. |
-| `.gitignore` | Excludes `.env`, `.claude/settings.local.json`. **Load-bearing for security** — don't loosen without auditing. |
+| File / dir | Purpose |
+|------------|---------|
+| `package.json`, `next.config.js`, `vercel.json` | Next.js + Vercel configuration. `/` rewrites to `/app.html` via `next.config.js`. |
+| `pages/api/*.js` | Serverless route handlers — health, sso, crm/lookup, sops (GET/POST), sops/[id] (PUT/DELETE), integrations/import, integrations/export, analyze, extract, evaluate. Pages router (not App router) for simpler `req.body` handling. |
+| `lib/data.js` | Reads `sops.json`/`crm.json`. `writeSops` throws `READONLY` when `process.env.VERCEL` is set. CRM lookup helpers (by query and from-transcript). |
+| `lib/disposition.js` | `STATUS_PRIORITY` map and `getOverallDisposition`. Mirrored in `server.ps1` and the Claude prompts — keep all three in sync. |
+| `lib/analyze-local.js` | Faithful JS port of `Invoke-LocalAnalysis`, including the per-SOP regex guardrails. |
+| `lib/analyze-claude.js` | Anthropic API call with the strict-priority + JSON-extraction prompt. |
+| `lib/extract.js` | Anthropic API call for structured flag extraction; reads `schemas/extraction-schema.json` at request time so schema edits go live without a redeploy. |
+| `lib/evaluate-gemini.js` | Gemini API call for confidence scoring. Default model `gemini-2.5-flash-lite` (free-tier-0 traps on `gemini-2.0-flash` for new keys). |
+| `public/app.html` | Single-page UI. CDN libraries (mammoth, pdf.js) lazy-loaded only for `.docx`/`.pdf` upload. **Moved here from repo root during the Vercel port** — `server.ps1` was updated to serve from `/public` so PS mode stays in sync. |
+| `server.ps1` | PowerShell `HttpListener` backend — Windows local-only, parity with Next.js except missing `/api/extract`. |
+| `sops.json` | v2.0 SOP library under `rules[]` (8 rules: 1 General, 4 Joint, 3 Bariatric). Editable from the UI in dev only. |
+| `crm.json` | Mock CRM (3 sample patients). Edit `name_aliases` to control which transcripts match. |
+| `schemas/extraction-schema.json` | Typed contract for `/api/extract`. Leaf values are pseudo-type strings (`"boolean | null"`) that the extractor replaces with concrete values; this is documentation + prompt input, not strict JSON Schema. |
+| `samples/` | Standalone sample transcripts (e.g. `sample-transcript.json`) for manual upload testing. |
+| `.env.example` | Template — copy to `.env` and add `ANTHROPIC_API_KEY` and `GEMINI_API_KEY`. |
+| `.gitignore` | `.env`, `.env.*` (with `!.env.example`), `node_modules/`, `.next/`, `.vercel/`. **Load-bearing for security.** |
+| `.gitattributes` | LF in repo, CRLF for `*.ps1` working trees, binary markers for png/pdf/docx etc. Eliminates LF↔CRLF warnings on Windows. |
 | `.claude/launch.json` | Preview config (`carrum-analyzer`). |
 
 ### Git / repository
 
-`.gitignore` is load-bearing for keeping the Anthropic API key out of the repo — run `git check-ignore -v .env` before any commit that touches gitignore. Never `git add -f .env`.
+`main` is deployed to Vercel automatically. `.gitignore` is load-bearing for keeping the Anthropic and Gemini keys out of the repo — run `git check-ignore -v .env` before any commit that touches gitignore. **Never `git add -f .env` and never copy `.env` to a name other than `.env.example`** — `.env.txt` was the bug we hit pre-push that almost shipped a real key.
