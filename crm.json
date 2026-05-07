@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "records": [
+    {
+      "patient_id": "P-10042",
+      "name": "Sarah Mitchell",
+      "name_aliases": ["sarah", "sarah mitchell", "s. mitchell"],
+      "age": 47,
+      "sex": "F",
+      "location": "Austin, TX",
+      "height_in": 65,
+      "weight_lb": 232,
+      "bmi": 38.6,
+      "employer": "Hewlett Packard Enterprise",
+      "case_type": "Bariatric",
+      "primary_dx": "Class II Obesity, prior sleeve gastrectomy 2018",
+      "phone": "(512) 555-0142",
+      "email": "sarah.mitchell@example.com"
+    },
+    {
+      "patient_id": "P-10118",
+      "name": "Robert Carlson",
+      "name_aliases": ["bob", "robert", "robert carlson", "bob carlson"],
+      "age": 62,
+      "sex": "M",
+      "location": "Cleveland, OH",
+      "height_in": 70,
+      "weight_lb": 215,
+      "bmi": 30.8,
+      "employer": "U.S. Foods",
+      "case_type": "Joint",
+      "primary_dx": "Right knee osteoarthritis, chronic opioid management",
+      "phone": "(216) 555-0193",
+      "email": "rcarlson@example.com"
+    },
+    {
+      "patient_id": "P-10227",
+      "name": "Maria Alvarez",
+      "name_aliases": ["maria", "maria alvarez", "m. alvarez"],
+      "age": 54,
+      "sex": "F",
+      "location": "Phoenix, AZ",
+      "height_in": 63,
+      "weight_lb": 178,
+      "bmi": 31.5,
+      "employer": "City of Phoenix",
+      "case_type": "Joint",
+      "primary_dx": "Bilateral knee osteoarthritis, Type 2 diabetes",
+      "phone": "(602) 555-0167",
+      "email": "m.alvarez@example.com"
+    }
+  ]
+}

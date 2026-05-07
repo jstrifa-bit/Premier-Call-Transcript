@@ -1,0 +1,976 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Carrum Care Specialist Console</title>
+<style>
+  :root {
+    --bg: #f4f6fb;
+    --surface: #ffffff;
+    --surface-2: #f8fafc;
+    --border: #e2e8f0;
+    --border-strong: #cbd5e1;
+    --text: #0f172a;
+    --text-2: #475569;
+    --text-3: #64748b;
+    --brand: #1d4ed8;
+    --brand-2: #3b82f6;
+    --brand-soft: #dbeafe;
+    --accent: #0ea5e9;
+    --green: #16a34a;
+    --green-soft: #dcfce7;
+    --yellow: #ca8a04;
+    --yellow-soft: #fef9c3;
+    --orange: #ea580c;
+    --orange-soft: #ffedd5;
+    --red: #dc2626;
+    --red-soft: #fee2e2;
+    --blue-soft: #dbeafe;
+    --shadow-sm: 0 1px 2px rgba(15,23,42,.06), 0 1px 1px rgba(15,23,42,.04);
+    --shadow-md: 0 4px 12px rgba(15,23,42,.08);
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; }
+  body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, sans-serif; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
+  button { font: inherit; cursor: pointer; }
+  input, textarea, select { font: inherit; color: var(--text); }
+  textarea { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; }
+  a { color: var(--brand); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ---------- SSO gate ---------- */
+  .sso-overlay { position: fixed; inset: 0; background: linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 50%, #0ea5e9 100%); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+  .sso-card { background: var(--surface); width: min(440px, 92vw); border-radius: 16px; padding: 32px; box-shadow: 0 30px 60px rgba(0,0,0,.25); }
+  .sso-logo { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .sso-logo .mark { width: 36px; height: 36px; border-radius: 9px; background: linear-gradient(135deg, var(--brand) 0%, var(--accent) 100%); display: grid; place-items: center; color: white; font-weight: 700; }
+  .sso-logo .name { font-weight: 700; font-size: 18px; }
+  .sso-card h1 { margin: 18px 0 4px; font-size: 22px; }
+  .sso-card p { margin: 0 0 20px; color: var(--text-2); font-size: 14px; }
+  .sso-btn { width: 100%; background: #111827; color: white; border: 0; border-radius: 10px; padding: 12px 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 10px; }
+  .sso-btn:disabled { opacity: .6; cursor: progress; }
+  .sso-foot { font-size: 12px; color: var(--text-3); margin-top: 16px; text-align: center; }
+
+  /* ---------- top bar ---------- */
+  .topbar { background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 30; }
+  .topbar-inner { max-width: 1280px; margin: 0 auto; padding: 10px 24px; display: flex; align-items: center; gap: 18px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; }
+  .brand .mark { width: 28px; height: 28px; border-radius: 7px; background: linear-gradient(135deg, var(--brand) 0%, var(--accent) 100%); color: white; display:grid; place-items:center; font-weight:800; font-size:13px; }
+  .brand .name { font-size: 15px; }
+  .brand .sub { color: var(--text-3); font-weight: 500; font-size: 13px; margin-left: 6px; }
+  .integrations { display: flex; gap: 8px; flex-wrap: wrap; margin-left: 12px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2); font-size: 12px; color: var(--text-2); }
+  .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 2px var(--green-soft); }
+  .pill.warn .dot { background: var(--yellow); box-shadow: 0 0 0 2px var(--yellow-soft); }
+  .top-spacer { flex: 1; }
+  .user-chip { display: flex; align-items: center; gap: 10px; padding: 5px 10px 5px 5px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2); }
+  .avatar { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, var(--brand-2), var(--accent)); color: white; display:grid; place-items:center; font-weight:700; font-size:12px; }
+  .user-chip .who { font-size: 13px; line-height: 1.1; }
+  .user-chip .who small { color: var(--text-3); font-size: 11px; }
+  .signout { background: transparent; border: 0; color: var(--text-3); font-size: 12px; padding: 4px 8px; border-radius: 6px; }
+  .signout:hover { color: var(--red); background: var(--red-soft); }
+
+  /* tabs */
+  .tabs { background: var(--surface); border-bottom: 1px solid var(--border); }
+  .tabs-inner { max-width: 1280px; margin: 0 auto; padding: 0 24px; display: flex; gap: 4px; }
+  .tab { background: transparent; border: 0; padding: 12px 14px; color: var(--text-2); font-weight: 500; border-bottom: 2px solid transparent; }
+  .tab.active { color: var(--brand); border-bottom-color: var(--brand); }
+  .tab:hover { color: var(--text); }
+
+  /* layout */
+  .container { max-width: 1280px; margin: 24px auto; padding: 0 24px; display: grid; grid-template-columns: 1fr 360px; gap: 24px; }
+  .container.full { grid-template-columns: 1fr; }
+  @media (max-width: 1100px) { .container { grid-template-columns: 1fr; } }
+
+  /* card */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow-sm); }
+  .card + .card { margin-top: 16px; }
+  .card h2 { margin: 0 0 12px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+  .card h2 .step-num { background: var(--brand-soft); color: var(--brand); font-size: 12px; padding: 2px 8px; border-radius: 999px; }
+  .muted { color: var(--text-3); }
+
+  /* form rows */
+  .row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end; }
+  .row.three { grid-template-columns: 1fr 1fr 1fr; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 12px; color: var(--text-2); font-weight: 500; }
+  .field input, .field select, .field textarea { padding: 9px 11px; border: 1px solid var(--border-strong); border-radius: 8px; background: white; outline: none; }
+  .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--brand-2); box-shadow: 0 0 0 3px rgba(59,130,246,.15); }
+  textarea { resize: vertical; min-height: 200px; }
+
+  .btn { background: var(--brand); color: white; border: 0; padding: 10px 14px; border-radius: 8px; font-weight: 600; }
+  .btn:hover { background: #1e40af; }
+  .btn:disabled { background: #94a3b8; cursor: not-allowed; }
+  .btn.secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); }
+  .btn.secondary:hover { background: var(--surface-2); }
+  .btn.ghost { background: transparent; color: var(--text-2); border: 0; }
+  .btn.ghost:hover { background: var(--surface-2); color: var(--text); }
+  .btn.danger { background: var(--red); }
+  .btn.danger:hover { background: #b91c1c; }
+  .btn.small { padding: 6px 10px; font-size: 13px; }
+
+  /* CRM card */
+  .crm-card { display: grid; grid-template-columns: 56px 1fr; gap: 14px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: linear-gradient(180deg, #f0f9ff 0%, #ffffff 60%); }
+  .crm-card .crm-avatar { width:56px; height:56px; border-radius: 12px; background: linear-gradient(135deg, var(--brand), var(--accent)); color:white; display:grid; place-items:center; font-weight:700; font-size:20px; }
+  .crm-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 6px 18px; font-size: 13px; }
+  .crm-grid div span { color: var(--text-3); display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  .crm-empty { padding: 14px; border: 1px dashed var(--border-strong); border-radius: 10px; color: var(--text-3); font-size: 13px; }
+
+  /* import strip */
+  .import-strip { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .import-strip .btn { font-size: 13px; padding: 8px 12px; }
+
+  /* status colors */
+  .status { padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; display: inline-block; }
+  .status.status-lg { font-size: 18px; font-weight: 800; padding: 6px 16px; letter-spacing: .01em; }
+  .status.Cleared           { background: var(--green-soft);  color: #166534; }
+  .status.Hold              { background: var(--blue-soft);   color: #1d4ed8; }
+  .status.Action            { background: var(--blue-soft);   color: #1d4ed8; }
+  .status.Review            { background: var(--yellow-soft); color: #854d0e; }
+  .status.Revision          { background: var(--yellow-soft); color: #854d0e; }
+  .status.HighComplexity    { background: var(--orange-soft); color: #9a3412; }
+  .status.Deferred          { background: var(--orange-soft); color: #9a3412; }
+  .status.Ineligible        { background: var(--red-soft);    color: #991b1b; }
+
+  /* findings */
+  .finding { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--surface-2); }
+  .finding + .finding { margin-top: 10px; }
+  .finding header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+  .sop-id { font-family: ui-monospace, monospace; font-size: 12px; color: var(--text-3); }
+  .finding h3 { margin: 0; font-size: 14px; }
+  .finding p { margin: 6px 0 0; font-size: 13px; color: var(--text-2); }
+  .finding .evidence { margin-top: 8px; padding: 8px 10px; background: white; border-left: 3px solid var(--brand-2); font-size: 12px; color: var(--text-2); border-radius: 4px; }
+
+  /* recommendation */
+  .reco { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 800px) { .reco { grid-template-columns: 1fr; } }
+  .reco .pane { padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
+  .reco .pane h3 { margin: 0 0 6px; font-size: 13px; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; }
+  .reco .disposition .big { font-size: 22px; font-weight: 700; }
+  .reco .disposition .reason { color: var(--text-2); font-size: 13px; margin-top: 4px; }
+  .reco .summary-text { font-size: 14px; line-height: 1.55; color: var(--text); }
+  .reco .reco-narrative { font-size: 14px; line-height: 1.55; color: var(--text); margin-top: 8px; }
+
+  /* next steps */
+  ol.steps { padding-left: 0; list-style: none; margin: 0; }
+  ol.steps li { display: grid; grid-template-columns: 28px 1fr; gap: 10px 12px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
+  ol.steps li + li { margin-top: 8px; }
+  ol.steps li.flagged { border-color: var(--red); background: var(--red-soft); }
+  ol.steps li.done { border-color: var(--green); background: var(--green-soft); }
+  ol.steps .num { width: 24px; height: 24px; border-radius: 50%; background: var(--brand-soft); color: var(--brand); display:grid; place-items:center; font-size: 12px; font-weight: 700; }
+  .step-text { font-size: 13px; }
+  .badge-prefix { display: inline-block; font-family: ui-monospace, monospace; font-size: 11px; color: var(--brand); background: var(--brand-soft); padding: 1px 6px; border-radius: 4px; margin-right: 6px; }
+  .step-evidence { background: white; border-left: 3px solid var(--brand-2); padding: 6px 10px; border-radius: 4px; font-size: 12px; color: var(--text-2); margin-top: 4px; }
+  .step-evidence-label { font-weight: 600; color: var(--brand); margin-right: 6px; text-transform: uppercase; font-size: 10px; letter-spacing: .04em; }
+  .step-evidence-text { font-style: italic; }
+  .step-controls { grid-column: 2; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+  .thumb-btn { background: white; border: 1px solid var(--border-strong); border-radius: 999px; padding: 4px 10px; font-size: 14px; line-height: 1; cursor: pointer; transition: transform .08s ease, background .12s ease; }
+  .thumb-btn:hover { transform: translateY(-1px); }
+  .thumb-btn.active.up { background: var(--green-soft); border-color: var(--green); }
+  .thumb-btn.active.down { background: var(--red-soft); border-color: var(--red); }
+  .step-cta { background: var(--brand); color: white; border: 0; padding: 6px 12px; border-radius: 8px; font-weight: 600; font-size: 12px; cursor: pointer; }
+  .step-cta:disabled { background: #cbd5e1; color: #64748b; cursor: not-allowed; }
+  .step-cta.done { background: var(--green); }
+  .step-status { font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; margin-left: auto; }
+  .step-status.flagged { background: var(--red-soft); color: #991b1b; }
+  .step-status.done { background: var(--green-soft); color: #166534; }
+
+  /* AI evaluation confidence pill */
+  .confidence { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; border: 1px solid transparent; cursor: help; }
+  .confidence.green  { background: var(--green-soft);  color: #166534; border-color: #86efac; }
+  .confidence.yellow { background: var(--yellow-soft); color: #854d0e; border-color: #fde68a; }
+  .confidence.red    { background: var(--red-soft);    color: #991b1b; border-color: #fca5a5; }
+  .confidence.loading { background: var(--surface-2); color: var(--text-3); border-color: var(--border); font-weight: 500; }
+  .confidence-label { font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; opacity: .8; }
+  .confidence-rationale { font-size: 11px; color: var(--text-3); margin-top: 4px; font-style: italic; }
+
+  /* SOP library */
+  .sop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+  .sop-card { background: white; border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+  .sop-card header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+  .sop-card .id { font-family: ui-monospace, monospace; font-size: 12px; color: var(--text-3); }
+  .sop-card h3 { margin: 0; font-size: 14px; }
+  .sop-card .meta { font-size: 12px; color: var(--text-3); margin-top: 4px; }
+  .sop-card p { font-size: 13px; color: var(--text-2); margin: 8px 0; }
+  .sop-card .actions { display: flex; gap: 6px; margin-top: 8px; }
+
+  /* modal */
+  .modal-bg { position: fixed; inset: 0; background: rgba(15,23,42,.55); display: none; align-items: center; justify-content: center; z-index: 50; }
+  .modal-bg.show { display: flex; }
+  .modal { background: var(--surface); width: min(640px, 92vw); max-height: 88vh; overflow: auto; border-radius: 12px; padding: 20px; box-shadow: var(--shadow-md); }
+  .modal h2 { margin: 0 0 12px; }
+  .modal .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+  /* toast */
+  .toast { position: fixed; bottom: 22px; right: 22px; background: #111827; color: white; padding: 10px 14px; border-radius: 8px; font-size: 13px; box-shadow: var(--shadow-md); display:none; z-index: 80; }
+  .toast.show { display: block; animation: slideUp .2s ease; }
+  @keyframes slideUp { from { transform: translateY(8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+  /* connect overlay */
+  .connect-overlay { display: none; align-items: center; justify-content: center; padding: 18px; border: 1px dashed var(--border-strong); border-radius: 10px; background: linear-gradient(180deg,#eff6ff,#fff); margin-top: 10px; }
+  .connect-overlay.show { display: flex; }
+  .spinner { width: 18px; height: 18px; border: 2px solid var(--brand-soft); border-top-color: var(--brand); border-radius: 50%; animation: spin 1s linear infinite; margin-right: 10px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .lock-mask { opacity: .55; pointer-events: none; }
+  .hidden { display: none !important; }
+
+  .footer-note { color: var(--text-3); font-size: 12px; margin-top: 18px; text-align: center; }
+</style>
+</head>
+<body>
+
+<!-- ---------- SSO gate ---------- -->
+<div class="sso-overlay" id="ssoOverlay">
+  <div class="sso-card">
+    <div class="sso-logo">
+      <div class="mark">C</div>
+      <div class="name">Carrum Health</div>
+    </div>
+    <h1>Care Specialist Console</h1>
+    <p>Sign in with your Carrum SSO to access patient records, transcripts, and SOPs.</p>
+    <button class="sso-btn" id="ssoBtn" onclick="onSsoSignIn()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      <span id="ssoBtnLabel">Continue with Carrum SSO (Okta)</span>
+    </button>
+    <div class="sso-foot">By signing in you agree to Carrum's HIPAA-compliant access policy. Demo environment.</div>
+  </div>
+</div>
+
+<!-- ---------- App shell ---------- -->
+<div id="appRoot" class="hidden">
+
+  <div class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="mark">C</div>
+        <div class="name">Carrum Care<span class="sub">Specialist Console</span></div>
+      </div>
+      <div class="top-spacer"></div>
+      <div class="user-chip" id="userChip">
+        <div class="avatar" id="userAvatar">--</div>
+        <div class="who">
+          <div id="userName">--</div>
+        </div>
+        <button class="signout" onclick="onSignOut()" title="Sign out">Sign out</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <div class="tabs-inner">
+      <button class="tab active" data-tab="analyzer" onclick="showTab('analyzer')">Transcript Analyzer</button>
+      <button class="tab" data-tab="sops" onclick="showTab('sops')">SOP Library</button>
+    </div>
+  </div>
+
+  <!-- ---------- Analyzer view ---------- -->
+  <div id="view-analyzer" class="container">
+    <div class="main-col">
+
+      <div class="card">
+        <h2><span class="step-num">1</span> Patient lookup</h2>
+        <div class="row">
+          <div class="field">
+            <label for="lkName">Patient name</label>
+            <input id="lkName" type="text" placeholder="e.g. Sarah Mitchell" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="lkId">Patient ID</label>
+            <input id="lkId" type="text" placeholder="e.g. P-10042" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label>&nbsp;</label>
+            <button class="btn" id="lookupBtn" onclick="onLookup()">Look up</button>
+          </div>
+        </div>
+        <div class="connect-overlay" id="connectOverlay">
+          <div class="spinner"></div>
+          <div class="muted">Connecting to Carrum CRM (Salesforce)...</div>
+        </div>
+        <div id="crmPanel" style="margin-top: 12px;"></div>
+        <div style="margin-top: 8px; display:flex; gap:8px;">
+          <button class="btn ghost small" id="resetLookupBtn" onclick="onLookupReset()" style="display:none;">Reset patient</button>
+        </div>
+      </div>
+
+      <div class="card" id="transcriptCard">
+        <h2><span class="step-num">2</span> Call transcript</h2>
+        <div class="muted" style="font-size:13px; margin-bottom:8px;">Paste the transcript, upload a file, or import from a connected system.</div>
+        <div class="field">
+          <textarea id="transcript" placeholder="Paste the call transcript here..."></textarea>
+        </div>
+        <div class="import-strip">
+          <input type="file" id="fileInput" accept=".txt,.md,.log,.html,.htm,.json,.csv,.xml,.srt,.vtt,.docx,.pdf" style="display:none" onchange="onFileChosen(event)" />
+          <button class="btn secondary small" onclick="document.getElementById('fileInput').click()">Upload file</button>
+          <button class="btn secondary small" onclick="onImportSample('googlemeet')">Import from Google Meet</button>
+          <span class="top-spacer"></span>
+          <button class="btn small" id="analyzeBtn" onclick="onAnalyze()">Analyze</button>
+        </div>
+      </div>
+
+      <div id="resultsContainer"></div>
+
+    </div>
+
+    <aside class="side-col">
+      <div class="card">
+        <h2>Sample transcripts</h2>
+        <div class="muted" style="font-size:13px; margin-bottom:10px;">Quick-load the 3 case-study patients to test the pipeline.</div>
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <button class="btn secondary small" onclick="loadSample('sarah')">Load Sarah Mitchell (Bariatric revision)</button>
+          <button class="btn secondary small" onclick="loadSample('bob')">Load Robert "Bob" Carlson (Joint, opioids)</button>
+          <button class="btn secondary small" onclick="loadSample('maria')">Load Maria Alvarez (Joint, smoker, A1c)</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Engine status</h2>
+        <div id="engineStatus" class="muted" style="font-size:13px;">Loading...</div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ---------- SOP Library view ---------- -->
+  <div id="view-sops" class="container full hidden">
+    <div class="card">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap: 12px; margin-bottom: 12px;">
+        <div>
+          <h2 style="margin:0;">SOP Library</h2>
+          <div class="muted" style="font-size:13px;">Edit, add, or remove the protocols the analyzer uses.</div>
+        </div>
+        <button class="btn" onclick="openSopEditor(null)">+ Add SOP</button>
+      </div>
+      <div class="sop-grid" id="sopGrid"></div>
+    </div>
+  </div>
+
+  <div class="footer-note">Carrum Health Care Specialist Console - demo environment.</div>
+</div>
+
+<!-- ---------- SOP edit modal ---------- -->
+<div class="modal-bg" id="sopModal">
+  <div class="modal">
+    <h2 id="sopModalTitle">Edit SOP</h2>
+    <div class="grid2">
+      <div class="field"><label>ID (e.g. JNT-005)</label><input id="ed_id" /></div>
+      <div class="field"><label>Category</label>
+        <select id="ed_category">
+          <option>General</option><option>Bariatric</option><option>Joint</option><option>Spine</option><option>Cardiac</option>
+        </select>
+      </div>
+      <div class="field"><label>Case Status</label>
+        <select id="ed_status">
+          <option>Ineligible</option><option>Deferred</option><option>High Complexity</option><option>Review</option><option>Revision Case</option><option>Hold</option><option>Action Required</option>
+        </select>
+      </div>
+      <div class="field"><label>Applies to (comma-separated, lowercase)</label><input id="ed_applies_to" placeholder="joint, bariatric" /></div>
+    </div>
+    <div class="field"><label>Finding (when triggered)</label><input id="ed_finding" placeholder="No Endoscopy (EGD) in last 3 months" /></div>
+    <div class="field"><label>Action</label><textarea id="ed_action" style="min-height:60px;"></textarea></div>
+    <div class="field"><label>Extracted flags (comma-separated)</label><input id="ed_flags" placeholder="endoscopy_within_3_months" /></div>
+    <div class="field"><label>Trigger logic</label><textarea id="ed_trigger" style="min-height:60px;" placeholder="endoscopy_within_3_months == false"></textarea></div>
+    <div class="modal-foot">
+      <button class="btn ghost" onclick="closeSopEditor()">Cancel</button>
+      <button class="btn" id="ed_save" onclick="onSaveSop()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+//---- state ----
+let CURRENT_USER = null;
+let CURRENT_CRM = null;
+let SOPS = [];
+let LAST_RESULT = null;
+let EDITING_SOP_ID = null;
+let STEP_STATE = []; // [{ vote: null|'up'|'down', done: false }]
+
+const SAMPLES = {
+  sarah: {
+    name: "Sarah Mitchell", id: "P-10042",
+    transcript: "Specialist: Hi Sarah, thanks for joining. I want to talk through where you are with your bariatric case.\nPatient: Sure. So you know I had a sleeve back in 2018 and I'm here because I'm thinking about a revision - I've regained a lot of the weight.\nSpecialist: Got it. Have you had an EGD recently to look at the anatomy?\nPatient: No, no one has ordered that yet.\nSpecialist: And nutrition - have you been seeing a registered dietitian as part of the program?\nPatient: I saw a nutritionist once a few months ago. That's it.\nSpecialist: Okay. We'll line up next steps from here.\n"
+  },
+  bob: {
+    name: "Robert Carlson", id: "P-10118",
+    transcript: "Specialist: Hi Bob, thanks for the time. We're talking through your right knee replacement.\nPatient: Yeah, the knee is killing me.\nSpecialist: Have you done a course of supervised physical therapy?\nPatient: Honestly no. I tried the gym a couple of times but never did real PT.\nSpecialist: And pain management - what are you taking?\nPatient: I've been on oxycodone every day for about eight months. My doctor has me on it.\nSpecialist: Got it.\n"
+  },
+  maria: {
+    name: "Maria Alvarez", id: "P-10227",
+    transcript: "Specialist: Hi Maria. We're checking in on your knee replacement workup.\nPatient: Hi. Yeah, it's been a long road.\nSpecialist: Are you still smoking?\nPatient: Yeah, about half a pack a day. I tried to quit last year but it didn't stick.\nSpecialist: And how is your diabetes management?\nPatient: My last A1c was 7.6, my doctor wasn't thrilled.\nSpecialist: Okay, thank you.\n"
+  }
+};
+
+//---- utility ----
+function $(id){ return document.getElementById(id); }
+function statusClass(s){ return (s || "Cleared").replace(/\s+/g,""); }
+function escapeHtml(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+function toast(msg){ const t=$("toast"); t.textContent=msg; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"), 2200); }
+function api(path, opts){ return fetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, opts||{})).then(r => r.json()); }
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+//---- SSO ----
+async function onSsoSignIn(){
+  const btn = $("ssoBtn"), label = $("ssoBtnLabel");
+  btn.disabled = true; label.textContent = "Signing in...";
+  try {
+    const r = await api("/api/sso/signin", { method: "POST", body: "{}" });
+    if (!r.ok) throw new Error("SSO failed");
+    CURRENT_USER = r.user;
+    $("userAvatar").textContent = r.user.avatar_initials;
+    $("userName").textContent = r.user.name;
+    $("ssoOverlay").classList.add("hidden");
+    $("appRoot").classList.remove("hidden");
+    refreshEngine();
+    refreshSops();
+  } catch (e) {
+    btn.disabled = false; label.textContent = "Continue with Carrum SSO (Okta)";
+    toast("Sign-in failed - try again.");
+  }
+}
+function onSignOut(){
+  CURRENT_USER = null; CURRENT_CRM = null; LAST_RESULT = null;
+  $("appRoot").classList.add("hidden");
+  $("ssoOverlay").classList.remove("hidden");
+  $("ssoBtn").disabled = false; $("ssoBtnLabel").textContent = "Continue with Carrum SSO (Okta)";
+}
+
+//---- tabs ----
+function showTab(name){
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
+  $("view-analyzer").classList.toggle("hidden", name !== "analyzer");
+  $("view-sops").classList.toggle("hidden", name !== "sops");
+}
+
+//---- engine status ----
+async function refreshEngine(){
+  try {
+    const r = await api("/api/health");
+    $("engineStatus").innerHTML = `Engine: <strong>${escapeHtml(r.engine)}</strong>${r.engine === "claude" ? " ("+escapeHtml(r.model)+")" : ""}`;
+  } catch { $("engineStatus").textContent = "Engine offline"; }
+}
+
+//---- patient lookup ----
+async function onLookup(){
+  const name = $("lkName").value.trim();
+  const id = $("lkId").value.trim();
+  if (!name && !id) { toast("Enter a name or patient ID."); return; }
+  $("lookupBtn").disabled = true;
+  $("connectOverlay").classList.add("show");
+  $("crmPanel").innerHTML = "";
+  // 5-second floor so the "connecting to CRM" feels real even when the API is instant
+  const apiCall = api("/api/crm/lookup", { method: "POST", body: JSON.stringify({ name, patient_id: id }) });
+  const [r] = await Promise.all([apiCall, sleep(2200)]);
+  $("connectOverlay").classList.remove("show");
+  $("lookupBtn").disabled = false;
+  CURRENT_CRM = r.crm_record || null;
+  renderCrm(r, name, id);
+  $("resetLookupBtn").style.display = "inline-block";
+  $("lkName").disabled = $("lkId").disabled = true;
+}
+function onLookupReset(){
+  CURRENT_CRM = null;
+  $("crmPanel").innerHTML = "";
+  $("lkName").disabled = $("lkId").disabled = false;
+  $("lkName").value = ""; $("lkId").value = "";
+  $("transcript").value = "";
+  $("resultsContainer").innerHTML = "";
+  $("resetLookupBtn").style.display = "none";
+}
+function renderCrm(r, qName, qId){
+  const c = r.crm_record;
+  if (!c) {
+    $("crmPanel").innerHTML = `<div class="crm-empty">No CRM record for "${escapeHtml(qName||qId||"")}". The mock CRM only contains the 3 sample patients. ${escapeHtml(r.note||"")}</div>`;
+    return;
+  }
+  const initials = c.name.split(/\s+/).slice(0,2).map(w => w[0]).join("");
+  $("crmPanel").innerHTML = `
+    <div class="crm-card">
+      <div class="crm-avatar">${escapeHtml(initials)}</div>
+      <div>
+        <div style="display:flex; align-items:baseline; gap:10px; margin-bottom:6px;">
+          <strong>${escapeHtml(c.name)}</strong>
+          <span class="muted" style="font-size:12px;">${escapeHtml(c.patient_id)}</span>
+          <span class="status ${statusClass(c.case_type === "Bariatric" ? "Hold" : c.case_type === "Joint" ? "Action" : "Cleared")}">${escapeHtml(c.case_type)}</span>
+        </div>
+        <div class="crm-grid">
+          <div><span>Age / Sex</span>${c.age} ${escapeHtml(c.sex)}</div>
+          <div><span>Location</span>${escapeHtml(c.location)}</div>
+          <div><span>Employer</span>${escapeHtml(c.employer)}</div>
+          <div><span>BMI</span>${c.bmi}</div>
+          <div><span>Height / Weight</span>${c.height_in}" / ${c.weight_lb} lb</div>
+          <div><span>Phone</span>${escapeHtml(c.phone)}</div>
+        </div>
+        <div class="muted" style="font-size:12px; margin-top:6px;">Dx: ${escapeHtml(c.primary_dx)}</div>
+      </div>
+    </div>`;
+}
+
+//---- transcript input ----
+const TEXT_EXTS = ["txt","md","log","html","htm","json","csv","xml","srt","vtt"];
+
+function stripCaptionTimestamps(s){
+  // Remove SRT/VTT cue numbers, timestamps, and WEBVTT header. Leave dialogue lines.
+  return s
+    .replace(/^WEBVTT.*$/gim, "")
+    .replace(/^\d+\s*$/gm, "")
+    .replace(/^\d{2}:\d{2}:\d{2}[.,]\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}[.,]\d{3}.*$/gm, "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function prettyRole(r){
+  if (!r) return "Speaker";
+  return String(r).replace(/[_\-]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function flattenJsonTranscript(raw){
+  let obj;
+  try { obj = JSON.parse(raw); } catch { return raw; }
+
+  const findMessages = (node) => {
+    if (!node) return null;
+    if (Array.isArray(node) && node.length && typeof node[0] === "object") return node;
+    if (typeof node === "object") {
+      for (const key of ["messages","transcript","dialogue","conversation","turns","utterances","entries"]) {
+        if (Array.isArray(node[key])) return node[key];
+      }
+    }
+    return null;
+  };
+
+  const messages = findMessages(obj);
+  if (!messages) return raw;
+
+  // Build participant lookup if present (id/role -> name).
+  const partMap = {};
+  if (Array.isArray(obj.participants)) {
+    for (const p of obj.participants) {
+      const key = p.id || p.role || p.speaker_id || p.name;
+      if (key) partMap[String(key).toLowerCase()] = p.name || p.role || key;
+    }
+  }
+
+  const lines = [];
+  for (const m of messages) {
+    if (!m || typeof m !== "object") continue;
+    const speakerRaw = m.speaker || m.role || m.from || m.author || m.name || m.speaker_id || "Speaker";
+    const text = m.text || m.content || m.utterance || m.message || m.body || "";
+    if (!text) continue;
+    const lookup = partMap[String(speakerRaw).toLowerCase()];
+    const label = prettyRole(lookup || speakerRaw);
+    const ts = m.timestamp || m.time || m.start || "";
+    lines.push(`${label}${ts ? " ["+ts+"]" : ""}: ${String(text).trim()}`);
+  }
+
+  if (!lines.length) return raw;
+
+  let header = "";
+  if (obj.metadata) {
+    const md = obj.metadata;
+    const bits = [];
+    if (md.call_duration_sec) bits.push(`Duration: ${md.call_duration_sec}s`);
+    if (md.sentiment) bits.push(`Sentiment: ${md.sentiment}`);
+    if (Array.isArray(md.detected_topics) && md.detected_topics.length) bits.push(`Topics: ${md.detected_topics.join(", ")}`);
+    if (bits.length) header = `[${bits.join(" | ")}]\n\n`;
+  }
+  return header + lines.join("\n");
+}
+
+function stripHtml(s){
+  const tmp = document.createElement("div");
+  tmp.innerHTML = s;
+  return (tmp.textContent || tmp.innerText || "").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function loadScriptOnce(src){
+  if (window.__scripts && window.__scripts[src]) return window.__scripts[src];
+  window.__scripts = window.__scripts || {};
+  const p = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src; s.onload = () => resolve(); s.onerror = () => reject(new Error("Failed to load "+src));
+    document.head.appendChild(s);
+  });
+  window.__scripts[src] = p;
+  return p;
+}
+
+async function readDocx(file){
+  await loadScriptOnce("https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js");
+  const buf = await file.arrayBuffer();
+  const result = await window.mammoth.extractRawText({ arrayBuffer: buf });
+  return result.value;
+}
+
+async function readPdf(file){
+  await loadScriptOnce("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.min.mjs").catch(async () => {
+    await loadScriptOnce("https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js");
+  });
+  const pdfjs = window["pdfjs-dist/build/pdf"] || window.pdfjsLib;
+  if (pdfjs && pdfjs.GlobalWorkerOptions) {
+    pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+  }
+  const buf = await file.arrayBuffer();
+  const doc = await pdfjs.getDocument({ data: buf }).promise;
+  let text = "";
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i);
+    const content = await page.getTextContent();
+    text += content.items.map(it => it.str).join(" ") + "\n\n";
+  }
+  return text.trim();
+}
+
+function readAsText(file){
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = e => resolve(e.target.result);
+    r.onerror = () => reject(r.error);
+    r.readAsText(file);
+  });
+}
+
+async function onFileChosen(ev){
+  const f = ev.target.files[0]; if (!f) return;
+  const ext = (f.name.split(".").pop() || "").toLowerCase();
+  toast("Loading "+f.name+"...");
+  try {
+    let text = "";
+    if (ext === "docx") {
+      text = await readDocx(f);
+    } else if (ext === "pdf") {
+      text = await readPdf(f);
+    } else if (TEXT_EXTS.includes(ext)) {
+      text = await readAsText(f);
+      if (ext === "srt" || ext === "vtt") text = stripCaptionTimestamps(text);
+      else if (ext === "html" || ext === "htm") text = stripHtml(text);
+      else if (ext === "json") text = flattenJsonTranscript(text);
+    } else {
+      // Unknown extension - attempt plain text.
+      text = await readAsText(f);
+    }
+    $("transcript").value = text;
+    toast("Loaded "+f.name);
+  } catch (e) {
+    toast("Failed to read "+f.name+": "+e.message);
+  } finally {
+    ev.target.value = "";
+  }
+}
+async function onImportSample(source){
+  toast("Importing from "+source+"...");
+  const r = await api("/api/integrations/import", { method:"POST", body: JSON.stringify({ source }) });
+  if (r.ok) { $("transcript").value = r.transcript; toast("Imported transcript from "+source); }
+}
+function loadSample(key){
+  const s = SAMPLES[key]; if (!s) return;
+  $("lkName").value = s.name; $("lkId").value = s.id;
+  $("transcript").value = s.transcript;
+  if (!CURRENT_CRM) onLookup();
+}
+
+//---- analyze ----
+async function onAnalyze(){
+  const transcript = $("transcript").value.trim();
+  if (!transcript) { toast("Paste or import a transcript first."); return; }
+  // If a patient profile is loaded, the transcript must reference that patient.
+  if (CURRENT_CRM) {
+    const aliases = (CURRENT_CRM.name_aliases || []).concat([CURRENT_CRM.name || ""]).filter(Boolean);
+    const lc = transcript.toLowerCase();
+    const matches = aliases.some(a => lc.includes(String(a).toLowerCase()));
+    if (!matches) {
+      alert("Error: the uploaded transcript does not match the selected patient profile (" + CURRENT_CRM.name + "). Please upload the correct patient profile before proceeding.");
+      onLookupReset();
+      return;
+    }
+  }
+  $("analyzeBtn").disabled = true; $("analyzeBtn").textContent = "Analyzing...";
+  $("resultsContainer").innerHTML = `<div class="card"><div class="muted">Running analysis... <span class="spinner" style="display:inline-block; vertical-align:middle;"></span></div></div>`;
+  try {
+    const r = await api("/api/analyze", {
+      method: "POST",
+      body: JSON.stringify({
+        transcript,
+        patient_name: $("lkName").value.trim(),
+        patient_id: $("lkId").value.trim()
+      })
+    });
+    if (!r.ok) throw new Error(r.error || "Analysis failed");
+    LAST_RESULT = r;
+    renderResults(r);
+  } catch (e) {
+    $("resultsContainer").innerHTML = `<div class="card"><strong>Error:</strong> ${escapeHtml(e.message)}</div>`;
+  } finally {
+    $("analyzeBtn").disabled = false; $("analyzeBtn").textContent = "Analyze";
+  }
+}
+
+function renderResults(r){
+  const disp = r.overall_disposition || { status: "Cleared", reason: "" };
+  const findings = r.findings || [];
+  const steps = r.next_steps || [];
+  STEP_STATE = steps.map(() => ({ vote: null, done: false }));
+
+  let html = `
+    <div class="card">
+      <h2>Analysis</h2>
+      <div class="reco">
+        <div class="pane">
+          <h3>Transcript Summary</h3>
+          <div class="summary-text">${escapeHtml(r.patient_summary || "")}</div>
+        </div>
+        <div class="pane disposition">
+          <h3 style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+            <span>Recommendation</span>
+            <span id="recoConfidence"></span>
+          </h3>
+          <div class="big"><span class="status status-lg ${statusClass(disp.status)}">${escapeHtml(disp.status)}</span></div>
+          <div class="reco-narrative"><strong>${escapeHtml(r.recommendation || disp.reason || "")}</strong></div>
+          <div class="confidence-rationale" id="recoRationale"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+        <span>Next Steps</span>
+        <span id="stepsConfidence"></span>
+      </h2>
+      <div class="muted" style="font-size:12px; margin-bottom:8px;">Approve each step with a thumbs-up to unlock its automation, or thumbs-down to flag for manual follow-up.</div>
+      <div class="confidence-rationale" id="stepsRationale" style="margin-bottom:8px;"></div>
+      <ol class="steps" id="stepsList"></ol>
+    </div>
+
+    <div class="card">
+      <h2>Triggered SOP Findings (${findings.length})</h2>
+      ${findings.length === 0 ? `<div class="muted">No SOPs triggered.</div>` : findings.map(f => `
+        <div class="finding">
+          <header>
+            <div>
+              <span class="sop-id">${escapeHtml(f.sop_id||"")}</span>
+              <h3 style="display:inline; margin-left:6px;">${escapeHtml(f.title||"")}</h3>
+            </div>
+            <span class="status ${statusClass(f.status)}">${escapeHtml(f.status||"")}</span>
+          </header>
+          <p><strong>Finding:</strong> ${escapeHtml(f.finding||"")}</p>
+          <p><strong>Action:</strong> ${escapeHtml(f.action||"")}</p>
+        </div>`).join("")}
+    </div>
+  `;
+  $("resultsContainer").innerHTML = html;
+  renderSteps();
+  runEvaluation(r);
+}
+
+function confidenceClass(score){
+  const s = Number(score);
+  if (isNaN(s)) return "loading";
+  if (s >= 76) return "green";
+  if (s >= 51) return "yellow";
+  return "red";
+}
+
+function paintConfidence(elId, rationaleId, label, score, rationale){
+  const el = $(elId); if (!el) return;
+  if (score == null) {
+    el.outerHTML = `<span id="${elId}"></span>`;
+    if (rationaleId && $(rationaleId)) $(rationaleId).textContent = "";
+    return;
+  }
+  el.outerHTML = `<span id="${elId}" class="confidence ${confidenceClass(score)}" title="${escapeHtml(rationale||"")}">
+      <span class="confidence-label">${escapeHtml(label)}</span>
+      <span>${Number(score)}/100</span>
+    </span>`;
+  if (rationaleId && $(rationaleId)) $(rationaleId).textContent = rationale || "";
+}
+
+async function runEvaluation(r){
+  // Show loading pills first.
+  const reco = $("recoConfidence"); if (reco) reco.outerHTML = `<span id="recoConfidence" class="confidence loading"><span class="confidence-label">Confidence</span><span>scoring...</span></span>`;
+  const stp  = $("stepsConfidence"); if (stp) stp.outerHTML = `<span id="stepsConfidence" class="confidence loading"><span class="confidence-label">Confidence</span><span>scoring...</span></span>`;
+  try {
+    const transcript = $("transcript").value;
+    const resp = await api("/api/evaluate", {
+      method: "POST",
+      body: JSON.stringify({
+        transcript,
+        patient_summary: r.patient_summary,
+        recommendation: r.recommendation,
+        next_steps: r.next_steps,
+        findings: r.findings,
+        overall_disposition: r.overall_disposition
+      })
+    });
+    if (!resp.ok) throw new Error(resp.error || "evaluation failed");
+    paintConfidence("recoConfidence", "recoRationale", "Confidence", resp.recommendation && resp.recommendation.score, resp.recommendation && resp.recommendation.rationale);
+    paintConfidence("stepsConfidence", "stepsRationale", "Confidence", resp.next_steps && resp.next_steps.score, resp.next_steps && resp.next_steps.rationale);
+  } catch (e) {
+    console.warn("Evaluation failed:", e.message);
+    const reco = $("recoConfidence"); if (reco) reco.outerHTML = `<span id="recoConfidence" class="confidence loading" title="${escapeHtml(e.message)}"><span class="confidence-label">Confidence</span><span>unavailable</span></span>`;
+    const stp  = $("stepsConfidence"); if (stp) stp.outerHTML = `<span id="stepsConfidence" class="confidence loading" title="${escapeHtml(e.message)}"><span class="confidence-label">Confidence</span><span>unavailable</span></span>`;
+    if ($("recoRationale")) $("recoRationale").textContent = "Evaluation unavailable: " + e.message;
+    if ($("stepsRationale")) $("stepsRationale").textContent = "";
+  }
+}
+
+function formatStep(s){
+  const m = String(s).match(/^\[([A-Z]{2,4}-\d{3})\]\s*(.*)$/);
+  if (m) return `<span class="badge-prefix">${escapeHtml(m[1])}</span>${escapeHtml(m[2])}`;
+  return escapeHtml(s);
+}
+
+function inferStepCta(stepText){
+  const t = String(stepText).toLowerCase();
+  if (/document.*(crm|record|call)|document the call/.test(t)) return { label: "Save note to Epic", target: "ehr", kind: "encounter_note" };
+  if (/notify .*patient|cessation|email|send .*resources/.test(t)) return { label: "Draft email in Outlook", target: "outlook", kind: "draft_email" };
+  if (/(schedule|set).*(follow.?up|check.?in|day)/.test(t)) return { label: "Schedule task in Salesforce", target: "crm", kind: "schedule_task" };
+  if (/escalate|medical director|clinical reviewer|route to/.test(t)) return { label: "Assign reviewer in Salesforce", target: "crm", kind: "assign_reviewer" };
+  if (/request|order|outstanding records|hold|pending/.test(t)) return { label: "Update case in Salesforce", target: "crm", kind: "update_case" };
+  if (/revision pathway|move case/.test(t)) return { label: "Move case in Salesforce", target: "crm", kind: "move_case" };
+  if (/close case|ineligibility/.test(t)) return { label: "Close case in Salesforce", target: "crm", kind: "close_case" };
+  return { label: "Update Salesforce CRM", target: "crm", kind: "update_case" };
+}
+
+function findEvidenceForStep(stepText){
+  const m = String(stepText).match(/^\[([A-Z]{2,4}-\d{3})\]/);
+  if (!m) return "";
+  const sopId = m[1];
+  const findings = (LAST_RESULT && LAST_RESULT.findings) || [];
+  const f = findings.find(x => x.sop_id === sopId);
+  return (f && f.evidence) ? f.evidence : "";
+}
+
+function renderSteps(){
+  const list = $("stepsList"); if (!list) return;
+  const steps = (LAST_RESULT && LAST_RESULT.next_steps) || [];
+  list.innerHTML = steps.map((s, i) => {
+    const st = STEP_STATE[i] || { vote: null, done: false };
+    const cta = inferStepCta(s);
+    const liClass = st.done ? "done" : (st.vote === "down" ? "flagged" : "");
+    const upActive = st.vote === "up" ? "active up" : "";
+    const downActive = st.vote === "down" ? "active down" : "";
+    const ctaDisabled = !(st.vote === "up") || st.done;
+    const ctaLabel = st.done ? "Completed" : cta.label;
+    const ctaClass = st.done ? "step-cta done" : "step-cta";
+    const statusBadge = st.done
+      ? `<span class="step-status done">Completed</span>`
+      : (st.vote === "down" ? `<span class="step-status flagged">Follow-up flagged</span>` : "");
+    const evidence = findEvidenceForStep(s);
+    const evidenceBlock = evidence
+      ? `<div class="step-evidence" style="grid-column:2;">
+           <span class="step-evidence-label">Patient quote:</span>
+           <span class="step-evidence-text">"${escapeHtml(evidence)}"</span>
+         </div>`
+      : "";
+    return `
+      <li class="${liClass}">
+        <div class="num">${i+1}</div>
+        <div class="step-text">${formatStep(s)}</div>
+        ${evidenceBlock}
+        <div class="step-controls">
+          <button class="thumb-btn ${upActive}" title="Approve" onclick="onStepVote(${i},'up')" ${st.done ? "disabled" : ""}>👍</button>
+          <button class="thumb-btn ${downActive}" title="Flag for follow-up" onclick="onStepVote(${i},'down')" ${st.done ? "disabled" : ""}>👎</button>
+          <button class="${ctaClass}" onclick="onStepCta(${i})" ${ctaDisabled ? "disabled" : ""}>${escapeHtml(ctaLabel)}</button>
+          ${statusBadge}
+        </div>
+      </li>`;
+  }).join("");
+}
+
+function onStepVote(i, vote){
+  if (!STEP_STATE[i] || STEP_STATE[i].done) return;
+  STEP_STATE[i].vote = STEP_STATE[i].vote === vote ? null : vote;
+  if (vote === "down") toast("Step "+(i+1)+" flagged for manual follow-up.");
+  renderSteps();
+}
+
+async function onStepCta(i){
+  const st = STEP_STATE[i]; if (!st || st.vote !== "up" || st.done) return;
+  const stepText = (LAST_RESULT && LAST_RESULT.next_steps && LAST_RESULT.next_steps[i]) || "";
+  const cta = inferStepCta(stepText);
+  toast(cta.label + "...");
+  try {
+    const r = await api("/api/integrations/export", {
+      method: "POST",
+      body: JSON.stringify({ target: cta.target, kind: cta.kind, step_index: i, step_text: stepText, payload: LAST_RESULT })
+    });
+    if (r.ok) {
+      st.done = true;
+      toast(`Done - ${cta.target} ref ${r.reference}`);
+    } else { toast("Automation failed"); }
+  } catch (e) {
+    toast("Automation failed: " + e.message);
+  }
+  renderSteps();
+}
+
+//---- SOP library ----
+async function refreshSops(){
+  const r = await api("/api/sops");
+  SOPS = (r.rules || []).slice();
+  renderSopGrid();
+}
+function renderSopGrid(){
+  $("sopGrid").innerHTML = SOPS.map(s => `
+    <div class="sop-card">
+      <header>
+        <span class="id">${escapeHtml(s.id)}</span>
+        <span class="status ${statusClass(s.case_status)}">${escapeHtml(s.case_status)}</span>
+      </header>
+      <h3>${escapeHtml(s.finding || "")}</h3>
+      <div class="meta">${escapeHtml(s.category)} - applies to: ${escapeHtml((s.applies_to||[]).join(", "))}</div>
+      <p><strong>Action:</strong> ${escapeHtml(s.action || "")}</p>
+      <p class="muted" style="font-family:ui-monospace,monospace; font-size:11px;">${escapeHtml(s.trigger_logic || "")}</p>
+      <div class="actions">
+        <button class="btn secondary small" onclick="openSopEditor('${escapeHtml(s.id)}')">Edit</button>
+        <button class="btn ghost small" onclick="onDeleteSop('${escapeHtml(s.id)}')" style="color:var(--red);">Delete</button>
+      </div>
+    </div>`).join("");
+}
+function openSopEditor(id){
+  EDITING_SOP_ID = id;
+  const s = id ? SOPS.find(x => x.id === id) : { id:"", category:"General", case_status:"Action Required", applies_to:[], finding:"", action:"", extracted_flags:[], trigger_logic:"" };
+  if (!s) return;
+  $("sopModalTitle").textContent = id ? "Edit SOP "+id : "Add SOP";
+  $("ed_id").value = s.id; $("ed_id").disabled = !!id;
+  $("ed_category").value = s.category || "General";
+  $("ed_status").value = s.case_status || "Action Required";
+  $("ed_applies_to").value = (s.applies_to || []).join(", ");
+  $("ed_finding").value = s.finding || "";
+  $("ed_action").value = s.action || "";
+  $("ed_flags").value = (s.extracted_flags || []).join(", ");
+  $("ed_trigger").value = s.trigger_logic || "";
+  $("sopModal").classList.add("show");
+}
+function closeSopEditor(){ $("sopModal").classList.remove("show"); EDITING_SOP_ID = null; }
+async function onSaveSop(){
+  const id = $("ed_id").value.trim();
+  if (!id) { toast("ID is required"); return; }
+  const body = {
+    id,
+    category: $("ed_category").value,
+    case_status: $("ed_status").value,
+    applies_to: $("ed_applies_to").value.split(",").map(s=>s.trim().toLowerCase()).filter(Boolean),
+    finding: $("ed_finding").value.trim(),
+    action: $("ed_action").value.trim(),
+    extracted_flags: $("ed_flags").value.split(",").map(s=>s.trim()).filter(Boolean),
+    trigger_logic: $("ed_trigger").value.trim()
+  };
+  const url = EDITING_SOP_ID ? "/api/sops/"+encodeURIComponent(EDITING_SOP_ID) : "/api/sops";
+  const method = EDITING_SOP_ID ? "PUT" : "POST";
+  const r = await api(url, { method, body: JSON.stringify(body) });
+  if (r.ok) { toast(EDITING_SOP_ID ? "SOP updated" : "SOP added"); closeSopEditor(); refreshSops(); }
+  else toast("Error: "+(r.error||"unknown"));
+}
+async function onDeleteSop(id){
+  if (!confirm("Delete SOP "+id+"?")) return;
+  const r = await api("/api/sops/"+encodeURIComponent(id), { method: "DELETE" });
+  if (r.ok) { toast("Deleted "+id); refreshSops(); }
+}
+</script>
+</body>
+</html>

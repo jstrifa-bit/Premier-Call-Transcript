@@ -1,0 +1,123 @@
+{
+  "version": "2.0",
+  "last_updated": "2026-05-07",
+  "rules": [
+    {
+      "id": "GEN-001",
+      "category": "General",
+      "applies_to": ["joint", "bariatric"],
+      "finding": "Dental visit > 6 months ago OR pending dental work",
+      "case_status": "Action Required",
+      "action": "Instruct patient to complete dental clearance before Consultation.",
+      "extracted_flags": [
+        "dental_visit_within_6_months",
+        "pending_dental_work"
+      ],
+      "trigger_logic": "dental_visit_within_6_months == false OR pending_dental_work == true"
+    },
+    {
+      "id": "JNT-001",
+      "category": "Joint",
+      "applies_to": ["joint"],
+      "finding": "Active Smoker or quit within last 3 months",
+      "case_status": "Deferred",
+      "action": "Refer to Smoking Cessation education/support; pause case for 3 months.",
+      "extracted_flags": [
+        "active_smoker",
+        "quit_smoking_within_3_months"
+      ],
+      "trigger_logic": "active_smoker == true OR quit_smoking_within_3_months == true"
+    },
+    {
+      "id": "JNT-002",
+      "category": "Joint",
+      "applies_to": ["joint"],
+      "finding": "No attempt at PT or Exercise",
+      "case_status": "Ineligible",
+      "action": "Refer to 6-12 week conservative physical therapy trial.",
+      "extracted_flags": [
+        "attempted_pt"
+      ],
+      "trigger_logic": "attempted_pt == false"
+    },
+    {
+      "id": "JNT-003",
+      "category": "Joint",
+      "applies_to": ["joint"],
+      "finding": "HbA1c > 7.0",
+      "case_status": "Review",
+      "action": "Flag for Clinical MD Review for glucose optimization.",
+      "extracted_flags": [
+        "hba1c_value"
+      ],
+      "trigger_logic": "hba1c_value > 7.0"
+    },
+    {
+      "id": "JNT-004",
+      "category": "Joint",
+      "applies_to": ["joint"],
+      "finding": "Daily Opioid use greater than 3 months",
+      "case_status": "High Complexity",
+      "action": "Flag for Anesthesia High Risk Consult.",
+      "extracted_flags": [
+        "daily_opioid_use",
+        "opioid_duration_months"
+      ],
+      "trigger_logic": "daily_opioid_use == true AND opioid_duration_months > 3"
+    },
+    {
+      "id": "BAR-001",
+      "category": "Bariatric",
+      "applies_to": ["bariatric"],
+      "finding": "History of prior weight-loss surgery",
+      "case_status": "Revision Case",
+      "action": "Flag as Revision Case; requires specialized surgical review.",
+      "extracted_flags": [
+        "prior_weight_loss_surgery"
+      ],
+      "trigger_logic": "prior_weight_loss_surgery == true"
+    },
+    {
+      "id": "BAR-002",
+      "category": "Bariatric",
+      "applies_to": ["bariatric"],
+      "finding": "No Endoscopy (EGD) in last 3 months",
+      "case_status": "Action Required",
+      "action": "Instruct patient to schedule EGD after Consultation.",
+      "extracted_flags": [
+        "endoscopy_within_3_months"
+      ],
+      "trigger_logic": "endoscopy_within_3_months == false"
+    },
+    {
+      "id": "BAR-003",
+      "category": "Bariatric",
+      "applies_to": ["bariatric"],
+      "finding": "No Registered Dietician (RD) identified",
+      "case_status": "Hold",
+      "action": "Provide in-network RD list; patient must confirm RD before referral.",
+      "extracted_flags": [
+        "has_registered_dietician"
+      ],
+      "trigger_logic": "has_registered_dietician == false"
+    }
+  ],
+  "status_priority": {
+    "Ineligible": 1,
+    "Deferred": 2,
+    "High Complexity": 3,
+    "Review": 4,
+    "Revision Case": 5,
+    "Hold": 6,
+    "Action Required": 7
+  },
+  "status_colors": {
+    "Ineligible": "red",
+    "Deferred": "orange",
+    "High Complexity": "orange",
+    "Review": "yellow",
+    "Revision Case": "yellow",
+    "Hold": "blue",
+    "Action Required": "blue"
+  }
+}
