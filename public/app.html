@@ -200,6 +200,16 @@
   .contradiction-banner ul { margin: 0; padding-left: 20px; }
   .contradiction-banner li { margin: 3px 0; font-weight: 500; }
   .quality-banner { margin: 10px 0; padding: 8px 12px; border-radius: 8px; background: var(--yellow-soft); color: #854d0e; border: 1px solid #fde68a; font-size: 12px; line-height: 1.45; }
+
+  /* Evaluation card */
+  .dim-list { display: flex; flex-direction: column; gap: 8px; }
+  .dim-row { display: grid; grid-template-columns: minmax(200px, 1fr) auto minmax(0, 2fr); gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
+  .dim-name { font-size: 13px; font-weight: 600; color: var(--text); }
+  .dim-pill { white-space: nowrap; font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
+  .dim-reason { font-size: 12px; color: var(--text-2); font-style: italic; }
+  .escalation-banner { margin: 10px 0; padding: 12px 14px; border-radius: 8px; background: var(--red-soft); color: #991b1b; border: 1px solid #fca5a5; font-size: 13px; font-weight: 600; }
+  .evaluator-notes { margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); font-size: 12px; color: var(--text-2); }
+  .evaluator-notes strong { color: var(--text); }
   .extraction-meta { margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); font-size: 12px; color: var(--text-2); }
   .extraction-meta strong { color: var(--text); }
   .additional-context { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; font-size: 12px; }
@@ -855,6 +865,7 @@ function renderResults(r){
     </div>
 
     <div class="card" id="extractionCard"></div>
+    <div class="card" id="evaluationCard"></div>
   `;
   $("resultsContainer").innerHTML = html;
   renderSteps();
@@ -1030,10 +1041,20 @@ function paintConfidence(elId, rationaleId, label, score, rationale){
   if (rationaleId && $(rationaleId)) $(rationaleId).textContent = rationale || "";
 }
 
+function scoreToPercent(s){ return Math.round((Number(s) || 0) * 100); }
+function labelClass(label){
+  const l = String(label || "").toLowerCase();
+  if (l === "high") return "green";
+  if (l === "medium") return "yellow";
+  if (l === "low") return "red";
+  return "loading";
+}
+
 async function runEvaluation(r){
   // Show loading pills first.
-  const reco = $("recoConfidence"); if (reco) reco.outerHTML = `<span id="recoConfidence" class="confidence loading"><span class="confidence-label">Confidence</span><span>scoring...</span></span>`;
-  const stp  = $("stepsConfidence"); if (stp) stp.outerHTML = `<span id="stepsConfidence" class="confidence loading"><span class="confidence-label">Confidence</span><span>scoring...</span></span>`;
+  const reco = $("recoConfidence"); if (reco) reco.outerHTML = `<span id="recoConfidence" class="confidence loading"><span class="confidence-label">SOP Accuracy</span><span>scoring...</span></span>`;
+  const stp  = $("stepsConfidence"); if (stp) stp.outerHTML = `<span id="stepsConfidence" class="confidence loading"><span class="confidence-label">Actionability</span><span>scoring...</span></span>`;
+  const evCard = $("evaluationCard"); if (evCard) evCard.innerHTML = `<h2>Evaluation</h2><div class="muted" style="font-size:12px;">Scoring with Gemini... <span class="spinner" style="display:inline-block; vertical-align:middle;"></span></div>`;
   try {
     const transcript = $("transcript").value;
     const resp = await api("/api/evaluate", {
@@ -1044,19 +1065,68 @@ async function runEvaluation(r){
         recommendation: r.recommendation,
         next_steps: r.next_steps,
         findings: r.findings,
-        overall_disposition: r.overall_disposition
+        overall_disposition: r.overall_disposition,
+        extraction: r.extraction
       })
     });
     if (!resp.ok) throw new Error(resp.error || "evaluation failed");
-    paintConfidence("recoConfidence", "recoRationale", "Confidence", resp.recommendation && resp.recommendation.score, resp.recommendation && resp.recommendation.rationale);
-    paintConfidence("stepsConfidence", "stepsRationale", "Confidence", resp.next_steps && resp.next_steps.score, resp.next_steps && resp.next_steps.rationale);
+    const ev = resp.evaluation || {};
+    const sop = ev.sop_accuracy || {};
+    const act = ev.next_step_actionability || {};
+    paintConfidence("recoConfidence", "recoRationale", "SOP Accuracy", scoreToPercent(sop.score), sop.reason);
+    paintConfidence("stepsConfidence", "stepsRationale", "Actionability", scoreToPercent(act.score), act.reason);
+    renderEvaluation(ev, resp.model);
   } catch (e) {
     console.warn("Evaluation failed:", e.message);
     const reco = $("recoConfidence"); if (reco) reco.outerHTML = `<span id="recoConfidence" class="confidence loading" title="${escapeHtml(e.message)}"><span class="confidence-label">Confidence</span><span>unavailable</span></span>`;
     const stp  = $("stepsConfidence"); if (stp) stp.outerHTML = `<span id="stepsConfidence" class="confidence loading" title="${escapeHtml(e.message)}"><span class="confidence-label">Confidence</span><span>unavailable</span></span>`;
     if ($("recoRationale")) $("recoRationale").textContent = "Evaluation unavailable: " + e.message;
     if ($("stepsRationale")) $("stepsRationale").textContent = "";
+    const evCard = $("evaluationCard"); if (evCard) evCard.innerHTML = `<h2>Evaluation</h2><div class="muted" style="font-size:13px;">Evaluation unavailable: ${escapeHtml(e.message)}</div>`;
   }
+}
+
+function dimRow(name, dim){
+  const score = dim ? dim.score : null;
+  const pct = score == null ? null : scoreToPercent(score);
+  const cls = pct == null ? "loading" : confidenceClass(pct);
+  const reason = dim ? dim.reason : "";
+  return `
+    <div class="dim-row">
+      <div class="dim-name">${escapeHtml(name)}</div>
+      <div class="dim-pill confidence ${cls}">${pct == null ? "—" : pct + "/100"}</div>
+      <div class="dim-reason">${escapeHtml(reason || "")}</div>
+    </div>`;
+}
+
+function renderEvaluation(ev, model){
+  const card = $("evaluationCard"); if (!card) return;
+  if (!ev) { card.innerHTML = `<h2>Evaluation</h2><div class="muted">No evaluation returned.</div>`; return; }
+  const overallPct = scoreToPercent(ev.overall_score);
+  const overallCls = ev.score_label ? labelClass(ev.score_label) : confidenceClass(overallPct);
+  const escalationBanner = ev.needs_escalation
+    ? `<div class="escalation-banner">Escalation recommended${ev.escalation_reason ? ": " + escapeHtml(ev.escalation_reason) : ""}</div>`
+    : "";
+  const notes = ev.evaluator_notes
+    ? `<div class="evaluator-notes"><strong>Evaluator notes:</strong> ${escapeHtml(ev.evaluator_notes)}</div>`
+    : "";
+  card.innerHTML = `
+    <h2 style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+      <span>Evaluation</span>
+      <span class="confidence ${overallCls}">
+        <span class="confidence-label">Overall (${escapeHtml(ev.score_label || "—")})</span>
+        <span>${overallPct}/100</span>
+      </span>
+    </h2>
+    <div class="muted" style="font-size:12px; margin-bottom:10px;">Independent quality scoring across four dimensions${model ? " ("+escapeHtml(model)+")" : ""}. Weighted average: SOP Accuracy 40% / Extraction Completeness 30% / Actionability 20% / Human Review 10%.</div>
+    ${escalationBanner}
+    <div class="dim-list">
+      ${dimRow("SOP Accuracy (40%)", ev.sop_accuracy)}
+      ${dimRow("Extraction Completeness (30%)", ev.extraction_completeness)}
+      ${dimRow("Next Step Actionability (20%)", ev.next_step_actionability)}
+      ${dimRow("Human Review Appropriateness (10%)", ev.human_review_appropriateness)}
+    </div>
+    ${notes}`;
 }
 
 function formatStep(s){

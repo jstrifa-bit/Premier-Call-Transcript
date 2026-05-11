@@ -14,8 +14,7 @@ export default async function handler(req, res) {
       ok: true,
       evaluator: "gemini",
       model: result.model,
-      recommendation: result.recommendation,
-      next_steps: result.next_steps
+      evaluation: result.evaluation
     });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
