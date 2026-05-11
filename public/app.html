@@ -182,6 +182,10 @@
   .step-status.flagged { background: var(--red-soft); color: #991b1b; }
   .step-status.done { background: var(--green-soft); color: #166534; }
 
+  /* Draft patient email */
+  .email-draft-heading { margin: 0 0 4px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); }
+  .email-draft { width: 100%; min-height: 240px; padding: 12px; border: 1px solid var(--border-strong); border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; font-size: 12px; line-height: 1.55; color: var(--text); background: white; resize: vertical; box-sizing: border-box; }
+
   /* Clinical extraction card */
   .extraction-section { margin-top: 12px; }
   .extraction-section + .extraction-section { padding-top: 12px; border-top: 1px dashed var(--border); }
@@ -851,6 +855,7 @@ function renderResults(r){
       <div class="muted" style="font-size:12px; margin-bottom:8px;">Approve each step with a thumbs-up to unlock its automation, or thumbs-down to flag for manual follow-up.</div>
       <div class="confidence-rationale" id="stepsRationale" style="margin-bottom:8px;"></div>
       <ol class="steps" id="stepsList"></ol>
+      <div id="emailDraftContainer" style="margin-top:18px; padding-top:14px; border-top:1px dashed var(--border);"></div>
     </div>
 
     <div class="card">
@@ -1129,6 +1134,86 @@ function formatStep(s){
   return escapeHtml(s);
 }
 
+// Patient-communication SOPs: triggering action involves telling the patient something.
+// Internal-only SOPs (JNT-003 MD review, JNT-004 anesthesia consult, BAR-001 revision routing)
+// don't get a Copy Message button.
+const PATIENT_COMM_SOPS = new Set(["GEN-001", "JNT-001", "JNT-002", "BAR-002", "BAR-003"]);
+
+const PATIENT_MESSAGES_BY_SOP = {
+  "GEN-001": "Before your consultation, please complete a dental clearance exam. Many surgical pathways require recent dental clearance to reduce post-op infection risk.",
+  "JNT-001": "We'd like to enroll you in a smoking cessation program before moving forward with your case. We'll pause your case for three months to give you time to complete this step, and I'll share some support resources separately.",
+  "JNT-002": "Before we can proceed with the surgical pathway, you'll need to complete a 6-12 week course of supervised physical therapy. I can help connect you with an in-network provider.",
+  "JNT-003": "Your most recent A1c reading is above our program threshold. We'll flag this for clinical review so we can work with your provider on glucose optimization before surgery.",
+  "JNT-004": "Because you're on daily opioids, we'd like to schedule an anesthesia high-risk consult to plan a pre-op pain management strategy.",
+  "BAR-001": "Since you've had a prior weight-loss surgery, your case will be routed to our Revision Bariatric pathway for specialized surgical review.",
+  "BAR-002": "After your consultation, please schedule an upper endoscopy (EGD). This is required by our program before surgical planning can proceed.",
+  "BAR-003": "Before we can move your case forward, we need you to identify or be connected with a Registered Dietitian (RD). I can share an in-network RD list to help you start."
+};
+
+function isPatientCommStep(stepText){
+  const m = String(stepText).match(/^\[([A-Z]{2,4}-\d{3})\]/);
+  if (m && PATIENT_COMM_SOPS.has(m[1])) return true;
+  return /instruct|refer|provide|educate|notify patient|inform .*patient|send .*resources|cessation/i.test(stepText);
+}
+
+function getPatientMessageForStep(stepText){
+  const m = String(stepText).match(/^\[([A-Z]{2,4}-\d{3})\]/);
+  if (m && PATIENT_MESSAGES_BY_SOP[m[1]]) return PATIENT_MESSAGES_BY_SOP[m[1]];
+  if (/notify patient of ineligibility/i.test(stepText))
+    return "After review, your case does not meet our program eligibility criteria at this time. I'll follow up with details and any alternative options we can offer.";
+  if (/90.?day follow.?up|cessation|deferred/i.test(stepText))
+    return "We'll check back with you in 90 days. In the meantime, I'll share some support resources so you can prepare.";
+  if (/hold|outstanding records/i.test(stepText))
+    return "Your case is currently on hold while we wait on a few items. I'll let you know as soon as we have what we need to move forward.";
+  return "Following up on our call, I wanted to share the next steps for your case.";
+}
+
+async function onCopyStepMessage(i){
+  const stepText = (LAST_RESULT && LAST_RESULT.next_steps && LAST_RESULT.next_steps[i]) || "";
+  const patientName = (LAST_RESULT && LAST_RESULT.crm_record && LAST_RESULT.crm_record.name) || "Patient";
+  const firstName = patientName.split(/\s+/)[0];
+  const specialistName = (CURRENT_USER && CURRENT_USER.name) || "Care Specialist";
+  const msg = `Hi ${firstName},\n\nThank you for taking the time to speak with me. ${getPatientMessageForStep(stepText)}\n\nPlease don't hesitate to reach out if you have any questions.\n\nBest regards,\n${specialistName}\nCare Specialist, Premier Health`;
+  try {
+    await navigator.clipboard.writeText(msg);
+    toast("Message copied to clipboard");
+  } catch (e) {
+    toast("Copy failed: " + e.message);
+  }
+}
+
+function buildDraftEmail(){
+  const r = LAST_RESULT; if (!r) return "";
+  const patientName = (r.crm_record && r.crm_record.name) || "Patient";
+  const firstName = patientName.split(/\s+/)[0];
+  const caseType = (r.crm_record && r.crm_record.case_type) || "";
+  const specialistName = (CURRENT_USER && CURRENT_USER.name) || "Care Specialist";
+  const disposition = (r.overall_disposition && r.overall_disposition.status) || "";
+  const steps = r.next_steps || [];
+  const commSteps = steps.filter(isPatientCommStep);
+  const bulletText = commSteps.length
+    ? commSteps.map(s => "  - " + getPatientMessageForStep(s)).join("\n")
+    : "  - I will follow up with detailed next steps shortly.";
+  const dispBlurb = {
+    "Ineligible": "After reviewing what we discussed, your case does not meet our program eligibility criteria at this time. I'll follow up to walk through any alternative options.",
+    "Deferred": "We will need to defer your case for 90 days. In the meantime, I will share resources to support you in this time.",
+    "Hold": "Your case is on hold pending completion of the items below. Once those are in, I will move your case forward.",
+    "Action Required": "There are a few items we need to complete before we can advance your case.",
+    "High Complexity": "Your case will need additional clinical review. I will keep you informed as we coordinate next steps.",
+    "Review": "Your case is being routed for medical review and we will be back in touch shortly.",
+    "Revision Case": "Your case will be routed to our Revision pathway for specialized review."
+  }[disposition] || "I will be in touch shortly with the next steps.";
+
+  return `Subject: Following up on your call - next steps\n\nDear ${firstName},\n\nThank you for taking the time to speak with me today${caseType ? " about your " + caseType.toLowerCase() + " case" : ""}. ${dispBlurb}\n\nHere are the next steps to keep your case moving forward:\n\n${bulletText}\n\nPlease don't hesitate to reach out with any questions - I'm here to help you through this process.\n\nBest regards,\n${specialistName}\nCare Specialist, Premier Health`;
+}
+
+async function onCopyEmail(){
+  const ta = $("emailDraftText");
+  const text = ta ? ta.value : buildDraftEmail();
+  try { await navigator.clipboard.writeText(text); toast("Email copied to clipboard"); }
+  catch (e) { toast("Copy failed: " + e.message); }
+}
+
 function inferStepCta(stepText){
   const t = String(stepText).toLowerCase();
   if (/document.*(ehr|crm|record|call)|document the call/.test(t)) return { label: "Save note to EHR", target: "ehr", kind: "encounter_note" };
@@ -1172,6 +1257,9 @@ function renderSteps(){
            <span class="step-evidence-text">"${escapeHtml(evidence)}"</span>
          </div>`
       : "";
+    const copyMsgBtn = isPatientCommStep(s)
+      ? `<button class="btn secondary small" title="Copy patient-facing message" onclick="onCopyStepMessage(${i})">Copy Message</button>`
+      : "";
     return `
       <li class="${liClass}">
         <div class="num">${i+1}</div>
@@ -1181,10 +1269,24 @@ function renderSteps(){
           <button class="thumb-btn ${upActive}" title="Approve" onclick="onStepVote(${i},'up')" ${st.done ? "disabled" : ""}>👍</button>
           <button class="thumb-btn ${downActive}" title="Flag for follow-up" onclick="onStepVote(${i},'down')" ${st.done ? "disabled" : ""}>👎</button>
           <button class="${ctaClass}" onclick="onStepCta(${i})" ${ctaDisabled ? "disabled" : ""}>${escapeHtml(ctaLabel)}</button>
+          ${copyMsgBtn}
           ${statusBadge}
         </div>
       </li>`;
   }).join("");
+
+  // Render the draft email below the steps list.
+  const emailContainer = $("emailDraftContainer");
+  if (emailContainer) {
+    const draft = buildDraftEmail();
+    emailContainer.innerHTML = `
+      <h3 class="email-draft-heading">Draft patient email</h3>
+      <div class="muted" style="font-size:12px; margin-bottom:8px;">Edit as needed, then paste into Outlook or Gmail.</div>
+      <textarea id="emailDraftText" class="email-draft">${escapeHtml(draft)}</textarea>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button class="btn small" onclick="onCopyEmail()">Copy Email</button>
+      </div>`;
+  }
 }
 
 function onStepVote(i, vote){
