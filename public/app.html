@@ -405,6 +405,20 @@ let SOPS = [];
 let LAST_RESULT = null;
 let EDITING_SOP_ID = null;
 let STEP_STATE = []; // [{ vote: null|'up'|'down', done: false }]
+const SESSION_TRANSCRIPT_HASHES = new Set();
+
+// Allowed upload extensions - must match the `accept` attribute on #fileInput.
+const ALLOWED_EXTS = ["txt","md","log","html","htm","json","csv","xml","srt","vtt","docx","pdf"];
+
+// Soft thresholds for transcript size warnings.
+const MAX_WORDS_SOFT = 15000;
+const MIN_CHARS_SOFT = 200;
+
+async function sha256Hex(text){
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,"0")).join("");
+}
+function countWords(s){ return (String(s).trim().match(/\S+/g) || []).length; }
 
 //---- utility ----
 function $(id){ return document.getElementById(id); }
@@ -640,6 +654,12 @@ function readAsText(file){
 async function onFileChosen(ev){
   const f = ev.target.files[0]; if (!f) return;
   const ext = (f.name.split(".").pop() || "").toLowerCase();
+  // Edge case: unsupported file type (image, archive, exe, etc.)
+  if (!ALLOWED_EXTS.includes(ext)) {
+    alert("File type \"."+ext+"\" isn't supported. Please upload a supported file type: " + ALLOWED_EXTS.map(e => "."+e).join(", "));
+    ev.target.value = "";
+    return;
+  }
   toast("Loading "+f.name+"...");
   try {
     let text = "";
@@ -653,13 +673,19 @@ async function onFileChosen(ev){
       else if (ext === "html" || ext === "htm") text = stripHtml(text);
       else if (ext === "json") text = flattenJsonTranscript(text);
     } else {
-      // Unknown extension - attempt plain text.
       text = await readAsText(f);
+    }
+    // Edge case: empty file.
+    if (!text || !text.trim()) {
+      alert("The uploaded file appears to be empty. Please check the export from your call platform.");
+      ev.target.value = "";
+      return;
     }
     $("transcript").value = text;
     toast("Loaded "+f.name);
   } catch (e) {
-    toast("Failed to read "+f.name+": "+e.message);
+    // Edge case: encoding / parse errors from PDF, DOCX, or text decode.
+    alert("Could not read \""+f.name+"\". The file may use a non-standard encoding or be corrupt. Please re-export as UTF-8 text and try again.\n\nDetails: "+e.message);
   } finally {
     ev.target.value = "";
   }
@@ -673,7 +699,20 @@ async function onImportSample(source){
 async function onAnalyze(){
   const transcript = $("transcript").value.trim();
   if (!transcript) { toast("Paste or import a transcript first."); return; }
-  // If a patient profile is loaded, the transcript must reference that patient.
+
+  // Edge case: transcript too short to be meaningful.
+  if (transcript.length < MIN_CHARS_SOFT) {
+    toast("This transcript appears incomplete. Extraction may produce limited results.");
+    // Allow proceed; the extractor will flag requires_human_review.
+  }
+
+  // Edge case: very long transcript - warn but allow.
+  const wc = countWords(transcript);
+  if (wc > MAX_WORDS_SOFT) {
+    if (!confirm("This transcript is unusually long ("+wc.toLocaleString()+" words). Processing may take longer than expected and may exceed the model's context window. Continue?")) return;
+  }
+
+  // CRM/transcript name match guard.
   if (CURRENT_CRM) {
     const aliases = (CURRENT_CRM.name_aliases || []).concat([CURRENT_CRM.name || ""]).filter(Boolean);
     const lc = transcript.toLowerCase();
@@ -684,7 +723,39 @@ async function onAnalyze(){
       return;
     }
   }
-  $("analyzeBtn").disabled = true; $("analyzeBtn").textContent = "Analyzing...";
+
+  // Edge case: duplicate transcript in this session.
+  const hash = await sha256Hex(transcript);
+  if (SESSION_TRANSCRIPT_HASHES.has(hash)) {
+    if (!confirm("This transcript appears to have already been analyzed in this session. Do you want to re-analyze?")) return;
+  }
+
+  $("analyzeBtn").disabled = true; $("analyzeBtn").textContent = "Validating...";
+
+  // Edge case: non-clinical document OR non-English language - preflight check.
+  try {
+    const pre = await api("/api/preflight", { method: "POST", body: JSON.stringify({ transcript }) });
+    if (pre.ok) {
+      if (pre.is_clinical_transcript === false) {
+        alert("This document does not appear to be a patient care transcript. Please verify the file and re-upload.\n\nValidator: " + (pre.reason || "Non-clinical content detected."));
+        $("analyzeBtn").disabled = false; $("analyzeBtn").textContent = "Analyze";
+        return;
+      }
+      if (pre.detected_language && pre.detected_language !== "english") {
+        alert("English only is supported at this time. Detected language: " + pre.detected_language + ".");
+        $("analyzeBtn").disabled = false; $("analyzeBtn").textContent = "Analyze";
+        return;
+      }
+    }
+    // Non-ok preflight (e.g. 503 with no Claude key) silently skips this gate.
+  } catch (e) {
+    // Network error - don't block the user; log and proceed.
+    console.warn("Preflight skipped:", e.message);
+  }
+
+  SESSION_TRANSCRIPT_HASHES.add(hash);
+
+  $("analyzeBtn").textContent = "Analyzing...";
   $("resultsContainer").innerHTML = `<div class="card"><div class="muted">Running analysis... <span class="spinner" style="display:inline-block; vertical-align:middle;"></span></div></div>`;
   try {
     const r = await api("/api/analyze", {
