@@ -1,4 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "nextjs"
+  "framework": "nextjs",
+  "functions": {
+    "pages/api/analyze.js":  { "maxDuration": 60 },
+    "pages/api/extract.js":  { "maxDuration": 60 },
+    "pages/api/evaluate.js": { "maxDuration": 30 },
+    "pages/api/preflight.js":{ "maxDuration": 20 }
+  }
 }

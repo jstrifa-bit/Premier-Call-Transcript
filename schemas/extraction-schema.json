@@ -111,6 +111,9 @@
     "review_reason": "string | null",
     "missing_flags": "string[]",
     "ambiguous_flags": "string[]",
-    "null_flag_count": "integer"
+    "null_flag_count": "integer",
+    "speaker_labels_present": "boolean",
+    "inaudible_count": "integer",
+    "contradictions": "string[] | []"
   }
 }
