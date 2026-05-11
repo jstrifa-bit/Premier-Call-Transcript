@@ -151,6 +151,12 @@
   .reco .disposition .reason { color: var(--text-2); font-size: 13px; margin-top: 4px; }
   .reco .summary-text { font-size: 14px; line-height: 1.55; color: var(--text); }
   .reco .reco-narrative { font-size: 14px; line-height: 1.55; color: var(--text); margin-top: 8px; }
+  .reco-decision-row { display: flex; gap: 8px; }
+  .reco-decision-locked { padding: 10px 12px; border-radius: 8px; font-size: 13px; font-weight: 600; margin-top: 6px; }
+  .reco-decision-locked.agree { background: var(--green-soft); color: #166534; border: 1px solid #86efac; }
+  .reco-decision-locked.disagree { background: var(--orange-soft); color: #9a3412; border: 1px solid #fdba74; }
+  .disagree-banner { padding: 16px 18px; border-radius: 10px; background: var(--orange-soft); color: #9a3412; border: 1px solid #fdba74; font-size: 14px; line-height: 1.5; }
+  .disagree-banner strong { display: block; font-size: 16px; margin-bottom: 4px; }
 
   /* next steps */
   ol.steps { padding-left: 0; list-style: none; margin: 0; }
@@ -826,11 +832,18 @@ function renderResults(r){
           <div class="big"><span class="status status-lg ${statusClass(disp.status)}">${escapeHtml(disp.status)}</span></div>
           <div class="reco-narrative"><strong>${escapeHtml(r.recommendation || disp.reason || "")}</strong></div>
           <div class="confidence-rationale" id="recoRationale"></div>
+          <div class="reco-decision" id="recoDecision">
+            <div class="muted" style="font-size:12px; margin: 12px 0 6px;">Do you agree with this recommendation?</div>
+            <div class="reco-decision-row">
+              <button class="btn small" onclick="onRecoAgree()">Agree</button>
+              <button class="btn secondary small" onclick="onRecoDisagree()">Disagree</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
-    <div class="card">
+    <div class="card hidden" id="nextStepsWrapper">
       <h2 style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
         <span>Next Steps</span>
         <span id="stepsConfidence"></span>
@@ -854,6 +867,13 @@ function renderResults(r){
           <p><strong>Finding:</strong> ${escapeHtml(f.finding||"")}</p>
           <p><strong>Action:</strong> ${escapeHtml(f.action||"")}</p>
         </div>`).join("")}
+    </div>
+
+    <div class="card hidden" id="disagreeCard">
+      <div class="disagree-banner">
+        <strong>Recommendation declined</strong>
+        Please go back into the Patient profile in the EHR system to review the case.
+      </div>
     </div>
 
     <div class="card" id="extractionCard"></div>
@@ -1085,6 +1105,22 @@ function renderEvaluation(ev, model){
       ${dimRow("Human Review Appropriateness (10%)", ev.human_review_appropriateness)}
     </div>
     ${notes}`;
+}
+
+function onRecoAgree(){
+  if (!confirm("Please confirm: Do you AGREE with this recommendation and want to proceed to the next steps?")) return;
+  const dec = $("recoDecision");
+  if (dec) dec.innerHTML = `<div class="reco-decision-locked agree">You agreed with the recommendation. Next steps are shown below.</div>`;
+  const ns = $("nextStepsWrapper"); if (ns) ns.classList.remove("hidden");
+  const dis = $("disagreeCard"); if (dis) dis.classList.add("hidden");
+}
+
+function onRecoDisagree(){
+  if (!confirm("Please confirm: Do you DISAGREE with this recommendation?")) return;
+  const dec = $("recoDecision");
+  if (dec) dec.innerHTML = `<div class="reco-decision-locked disagree">You disagreed with the recommendation. Please return to the Patient profile in the EHR system.</div>`;
+  const ns = $("nextStepsWrapper"); if (ns) ns.classList.add("hidden");
+  const dis = $("disagreeCard"); if (dis) dis.classList.remove("hidden");
 }
 
 function formatStep(s){
