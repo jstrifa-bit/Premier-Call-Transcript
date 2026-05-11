@@ -195,11 +195,6 @@
   .flag-conf.low    { background: var(--red-soft);    color: #991b1b; }
   .flag-conf.null   { background: var(--surface-2);   color: var(--text-3); }
   .review-banner { margin: 10px 0; padding: 10px 12px; border-radius: 8px; background: var(--orange-soft); color: #9a3412; border: 1px solid #fdba74; font-size: 13px; font-weight: 600; }
-  .contradiction-banner { margin: 10px 0; padding: 12px 14px; border-radius: 8px; background: var(--red-soft); color: #991b1b; border: 1px solid #fca5a5; font-size: 13px; }
-  .contradiction-banner .contradiction-title { font-weight: 700; text-transform: uppercase; letter-spacing: .04em; font-size: 11px; margin-bottom: 6px; }
-  .contradiction-banner ul { margin: 0; padding-left: 20px; }
-  .contradiction-banner li { margin: 3px 0; font-weight: 500; }
-  .quality-banner { margin: 10px 0; padding: 8px 12px; border-radius: 8px; background: var(--yellow-soft); color: #854d0e; border: 1px solid #fde68a; font-size: 12px; line-height: 1.45; }
 
   /* Evaluation card */
   .dim-list { display: flex; flex-direction: column; gap: 8px; }
@@ -212,9 +207,6 @@
   .evaluator-notes strong { color: var(--text); }
   .extraction-meta { margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); font-size: 12px; color: var(--text-2); }
   .extraction-meta strong { color: var(--text); }
-  .additional-context { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; font-size: 12px; }
-  .additional-context div { background: white; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
-  .additional-context span { color: var(--text-3); display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 2px; }
 
   /* AI evaluation confidence pill */
   .confidence { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; border: 1px solid transparent; cursor: help; }
@@ -966,41 +958,10 @@ function renderExtraction(r){
     }</div>`);
   }
 
-  // Additional context
-  const ac = ex.additional_context || {};
-  const acItems = [];
-  if (ac.comorbidities && ac.comorbidities.length) acItems.push(`<div><span>Comorbidities</span>${escapeHtml(ac.comorbidities.join(", "))}</div>`);
-  if (ac.current_medications && ac.current_medications.length) acItems.push(`<div><span>Medications</span>${escapeHtml(ac.current_medications.join(", "))}</div>`);
-  if (ac.chronic_infections) acItems.push(`<div><span>Chronic infections</span>${escapeHtml(ac.chronic_infections)}</div>`);
-  if (ac.history_of_blood_clots != null) acItems.push(`<div><span>Blood clots history</span>${ac.history_of_blood_clots ? "Yes" : "No"}</div>`);
-  if (ac.oxygen_dependence != null) acItems.push(`<div><span>Oxygen dependence</span>${ac.oxygen_dependence ? "Yes" : "No"}</div>`);
-  if (ac.substance_use != null) acItems.push(`<div><span>Substance use</span>${ac.substance_use ? "Yes" : "No"}</div>`);
-  if (ac.mobility_status) acItems.push(`<div><span>Mobility</span>${escapeHtml(ac.mobility_status)}</div>`);
-  const acBlock = acItems.length
-    ? `<div class="extraction-section"><h3>Additional Context</h3><div class="additional-context">${acItems.join("")}</div></div>`
-    : "";
-
-  // Metadata + review banner
+  // Metadata + review banner (per schemas/extraction-schema.json)
   const meta = ex.extraction_metadata || {};
   const reviewBanner = meta.requires_human_review
     ? `<div class="review-banner">Requires human review${meta.review_reason ? ": " + escapeHtml(meta.review_reason) : ""}</div>`
-    : "";
-
-  // Contradictions surfaced as their own prominent block so they can't be missed.
-  const contradictions = Array.isArray(meta.contradictions) ? meta.contradictions : [];
-  const contradictionBlock = contradictions.length
-    ? `<div class="contradiction-banner">
-         <div class="contradiction-title">Patient contradictions detected (${contradictions.length})</div>
-         <ul>${contradictions.map(c => `<li>${escapeHtml(c)}</li>`).join("")}</ul>
-       </div>`
-    : "";
-
-  // Transcript quality notes (speaker labels, inaudible markers).
-  const qualityBits = [];
-  if (meta.speaker_labels_present === false) qualityBits.push(`Speaker labels were not present in the transcript - speaker roles inferred from context.`);
-  if (meta.inaudible_count && meta.inaudible_count > 0) qualityBits.push(`${meta.inaudible_count} [inaudible]/gap marker${meta.inaudible_count === 1 ? "" : "s"} detected; gaps treated as null.`);
-  const qualityBlock = qualityBits.length
-    ? `<div class="quality-banner">${qualityBits.map(b => escapeHtml(b)).join("<br>")}</div>`
     : "";
 
   const metaBlock = `
@@ -1011,11 +972,8 @@ function renderExtraction(r){
   card.innerHTML = `
     <h2>Clinical Extraction</h2>
     <div class="muted" style="font-size:12px; margin-bottom:8px;">Per-flag values, source quotes, and extraction confidence (high / medium / low) per the extraction schema.</div>
-    ${contradictionBlock}
     ${reviewBanner}
-    ${qualityBlock}
     ${sections.join("")}
-    ${acBlock}
     ${metaBlock}`;
 }
 

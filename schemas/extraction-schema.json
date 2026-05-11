@@ -1,11 +1,9 @@
 {
   "version": "2.0",
-  "last_updated": "2026-05-07",
-  "description": "Premier Health Care Team SOP extraction schema for protocol-driven patient routing",
+  "case_id": "string | null",
   "patient": {
     "name": "string | null",
-    "case_type": "joint | bariatric | null",
-    "case_id": "string | null"
+    "case_type": "joint | bariatric | null"
   },
   "clinical_flags": {
     "general": {
@@ -21,16 +19,8 @@
       }
     },
     "joint": {
-      "active_smoker": {
-        "value": "boolean | null",
-        "source_quote": "string | null",
-        "confidence": "high | medium | low | null"
-      },
-      "quit_smoking_within_3_months": {
-        "value": "boolean | null",
-        "source_quote": "string | null",
-        "confidence": "high | medium | low | null"
-      },
+      "active_smoker": { "value": "boolean | null", "source_quote": "string | null", "confidence": "high | medium | low | null" },
+      "quit_smoking_within_3_months": { "value": "boolean | null", "source_quote": "string | null", "confidence": "high | medium | low | null" },
       "attempted_pt": {
         "value": "boolean | null",
         "source_quote": "string | null",
@@ -42,24 +32,9 @@
           "was_formal": "boolean | null"
         }
       },
-      "hba1c_value": {
-        "value": "float | null",
-        "source_quote": "string | null",
-        "confidence": "high | medium | low | null",
-        "test_date": "string | null"
-      },
-      "daily_opioid_use": {
-        "value": "boolean | null",
-        "source_quote": "string | null",
-        "confidence": "high | medium | low | null"
-      },
-      "opioid_duration_months": {
-        "value": "integer | null",
-        "source_quote": "string | null",
-        "confidence": "high | medium | low | null",
-        "medication_name": "string | null",
-        "dosage": "string | null"
-      }
+      "hba1c_value": { "value": "float | null", "source_quote": "string | null", "confidence": "high | medium | low | null", "test_date": "string | null" },
+      "daily_opioid_use": { "value": "boolean | null", "source_quote": "string | null", "confidence": "high | medium | low | null" },
+      "opioid_duration_months": { "value": "integer | null", "source_quote": "string | null", "confidence": "high | medium | low | null", "medication_name": "string | null", "dosage": "string | null" }
     },
     "bariatric": {
       "prior_weight_loss_surgery": {
@@ -70,50 +45,65 @@
         "surgery_year": "integer | null",
         "surgery_location": "string | null"
       },
-      "endoscopy_within_3_months": {
-        "value": "boolean | null",
-        "source_quote": "string | null",
-        "confidence": "high | medium | low | null"
-      },
-      "has_registered_dietician": {
-        "value": "boolean | null",
-        "source_quote": "string | null",
-        "confidence": "high | medium | low | null",
-        "rd_details": "string | null"
-      }
+      "endoscopy_within_3_months": { "value": "boolean | null", "source_quote": "string | null", "confidence": "high | medium | low | null" },
+      "has_registered_dietician": { "value": "boolean | null", "source_quote": "string | null", "confidence": "high | medium | low | null", "rd_details": "string | null" }
     }
-  },
-  "additional_context": {
-    "comorbidities": "string[] | []",
-    "chronic_infections": "string | null",
-    "history_of_blood_clots": "boolean | null",
-    "oxygen_dependence": "boolean | null",
-    "substance_use": "boolean | null",
-    "current_medications": "string[] | []",
-    "mobility_status": "string | null"
   },
   "sop_recommendations": [
     {
       "id": "string",
       "category": "General | Joint | Bariatric",
       "finding": "string",
-      "case_status": "Action Required | Deferred | Ineligible | Review | High Complexity | Revision Case | Hold",
+      "case_status": "string",
       "action": "string",
-      "triggered_by_flags": "string[]",
-      "priority": "integer"
+      "triggered_by_flags": ["string"],
+      "priority": "integer",
+      "confidence": "high | medium | low"
+    }
+  ],
+  "next_steps": [
+    {
+      "step_id": "string",
+      "description": "string",
+      "triggered_by_sop": "string",
+      "priority": "integer",
+      "status": "pending | in_progress | complete | escalated",
+      "confidence": "high | medium | low",
+      "assigned_to": "string | null",
+      "due_date": "string | null"
     }
   ],
   "case_summary": "string | null",
-  "overall_case_status": "Action Required | Deferred | Ineligible | Review | High Complexity | Revision Case | Hold | Clear | null",
+  "overall_case_status": "string | null",
   "extraction_metadata": {
     "extraction_confidence": "high | medium | low",
     "requires_human_review": "boolean",
     "review_reason": "string | null",
-    "missing_flags": "string[]",
-    "ambiguous_flags": "string[]",
-    "null_flag_count": "integer",
-    "speaker_labels_present": "boolean",
-    "inaudible_count": "integer",
-    "contradictions": "string[] | []"
+    "missing_flags": ["string"],
+    "ambiguous_flags": ["string"],
+    "null_flag_count": "integer"
+  },
+  "evaluation": {
+    "sop_accuracy": {
+      "score": "float",
+      "reason": "string"
+    },
+    "extraction_completeness": {
+      "score": "float",
+      "reason": "string"
+    },
+    "next_step_actionability": {
+      "score": "float",
+      "reason": "string"
+    },
+    "human_review_appropriateness": {
+      "score": "float",
+      "reason": "string"
+    },
+    "overall_score": "float",
+    "score_label": "High | Medium | Low",
+    "needs_escalation": "boolean",
+    "escalation_reason": "string | null",
+    "evaluator_notes": "string | null"
   }
 }
