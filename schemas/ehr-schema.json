@@ -1,0 +1,16 @@
+{
+  "version": "1.0",
+  "last_updated": "2026-05-11",
+  "description": "Premier Health EHR record schema - the fields exposed to the Care Specialist Console patient panel. Backing data lives in crm.json; this schema defines the contract for what is displayed and what consumers of the EHR record can rely on.",
+  "patient_record": {
+    "name": "string",
+    "age": "integer",
+    "sex": "string",
+    "location": "string",
+    "employer": "string",
+    "bmi": "float",
+    "height_in": "integer",
+    "weight_lb": "integer",
+    "phone": "string"
+  }
+}

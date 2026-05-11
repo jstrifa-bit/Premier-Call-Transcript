@@ -488,15 +488,17 @@ function renderCrm(r, qName, qId){
     $("crmPanel").innerHTML = `<div class="crm-empty">No EHR record for "${escapeHtml(qName||qId||"")}". The mock EHR only contains the 3 sample patients. ${escapeHtml(r.note||"")}</div>`;
     return;
   }
+  // EHR card shows only the fields defined in schemas/ehr-schema.json
+  // (name, location, employer, BMI, height/weight, phone). Other fields in
+  // crm.json (case_type, age, sex, primary_dx, patient_id) remain in the
+  // backing data for SOP gating but are not displayed.
   const initials = c.name.split(/\s+/).slice(0,2).map(w => w[0]).join("");
   $("crmPanel").innerHTML = `
     <div class="crm-card">
       <div class="crm-avatar">${escapeHtml(initials)}</div>
       <div>
-        <div style="display:flex; align-items:baseline; gap:10px; margin-bottom:6px;">
+        <div style="margin-bottom:6px;">
           <strong>${escapeHtml(c.name)}</strong>
-          <span class="muted" style="font-size:12px;">${escapeHtml(c.patient_id)}</span>
-          <span class="status ${statusClass(c.case_type === "Bariatric" ? "Hold" : c.case_type === "Joint" ? "Action" : "Cleared")}">${escapeHtml(c.case_type)}</span>
         </div>
         <div class="crm-grid">
           <div><span>Age / Sex</span>${c.age} ${escapeHtml(c.sex)}</div>
@@ -506,7 +508,6 @@ function renderCrm(r, qName, qId){
           <div><span>Height / Weight</span>${c.height_in}" / ${c.weight_lb} lb</div>
           <div><span>Phone</span>${escapeHtml(c.phone)}</div>
         </div>
-        <div class="muted" style="font-size:12px; margin-top:6px;">Dx: ${escapeHtml(c.primary_dx)}</div>
       </div>
     </div>`;
 }
