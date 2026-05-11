@@ -1,4 +1,4 @@
-# Carrum Call Transcript Analyzer - backend server
+# Premier Call Transcript Analyzer - backend server
 # PowerShell 5.1, no external dependencies. Serves static files + JSON API.
 # Source must be ASCII-only (PS 5.1 reads UTF-8-without-BOM as Windows-1252).
 
@@ -321,7 +321,7 @@ function Build-LocalRecommendation {
     $line1 = "Recommended disposition: $($Disposition.status). This is driven by $($top.sop_id) ($($top.title)) - $($top.finding.ToLower())."
     $line2 = if ($Findings.Count -gt 1) { "Additional SOPs in play: $ids. Each requires the action listed in its finding card before this case can advance." } else { "Address the action listed in the $($top.sop_id) finding card to move the case forward." }
     $line3 = switch ($Disposition.status) {
-        "Ineligible"      { "Notify the patient of ineligibility and close the case in CRM." }
+        "Ineligible"      { "Notify the patient of ineligibility and close the case in EHR." }
         "Deferred"        { "Schedule a 90-day follow-up and provide cessation/support resources." }
         "Hold"            { "Place the case on hold pending requirement completion and set a 30-day check-in." }
         "Action Required" { "Request the outstanding records and re-evaluate when received." }
@@ -341,7 +341,7 @@ function Build-LocalNextSteps {
         $steps += "[$($f.sop_id)] $($f.action)"
     }
     switch ($Disposition.status) {
-        "Ineligible"       { $steps += "Notify patient of ineligibility and close case in CRM." }
+        "Ineligible"       { $steps += "Notify patient of ineligibility and close case in EHR." }
         "Deferred"         { $steps += "Schedule 90-day follow-up and send cessation/support resources." }
         "Hold"             { $steps += "Place case on hold pending requirement completion; set 30-day check-in." }
         "Action Required"  { $steps += "Request outstanding records and re-evaluate when received." }
@@ -350,7 +350,7 @@ function Build-LocalNextSteps {
         "Revision Case"    { $steps += "Move case to Revision pathway and notify scheduling team." }
         "Cleared"          { $steps += "Proceed to surgical consultation scheduling." }
     }
-    $steps += "Document the call summary and disposition in the patient's CRM record."
+    $steps += "Document the call summary and disposition in the patient's EHR record."
     return $steps
 }
 
@@ -371,14 +371,14 @@ function Invoke-ClaudeAnalysis {
     } else { "Case type unknown - apply general SOPs only." }
 
     $system = @"
-You are a clinical data extraction assistant for the Carrum Health Care Team.
+You are a clinical data extraction assistant for the Premier Health Care Team.
 
-CRITICAL: You are given ONLY the patient's case_type plus the call transcript. You do NOT have access to any CRM, EHR, or demographic database. Treat the case_type as a routing tag only - never paraphrase or restate it as patient context. NEVER invent or include the patient's full name, age, sex, location/city/state, BMI, or primary diagnosis in patient_summary or recommendation unless the patient or specialist explicitly stated that fact aloud in the transcript. Phrasing like "per CRM", "according to CRM", "based on the patient profile", or "presenting with [diagnosis] per CRM" is forbidden. If a fact is not in the transcript text below, do not write it.
+CRITICAL: You are given ONLY the patient's case_type plus the call transcript. You do NOT have access to any EHR, CRM, or demographic database. Treat the case_type as a routing tag only - never paraphrase or restate it as patient context. NEVER invent or include the patient's full name, age, sex, location/city/state, BMI, or primary diagnosis in patient_summary or recommendation unless the patient or specialist explicitly stated that fact aloud in the transcript. Phrasing like "per EHR", "per CRM", "according to EHR/CRM", "based on the patient profile", or "presenting with [diagnosis] per EHR" is forbidden. If a fact is not in the transcript text below, do not write it.
 
 Compare the call transcript against the SOPs and return STRICT JSON with this shape:
 {
   "patient_summary": "A 3-4 sentence clinical summary GROUNDED ENTIRELY IN THE TRANSCRIPT. Cover the chief concern, key clinical facts the patient or specialist actually said (BMI if stated in the call, prior surgeries mentioned, comorbidities discussed, medications named, lifestyle factors raised), and any red flags raised in conversation. Plain prose, no bullet points. DO NOT reference, paraphrase, or infer from CRM data, demographics, or any patient information not stated in the transcript itself.",
-  "recommendation": "A 2-3 sentence narrative recommendation that names the specific SOPs that drove the disposition (cite their IDs like BAR-002) and tells the Specialist what to do next in clinical terms. Reference only what was discussed in the transcript - DO NOT mention CRM data, demographic context, or facts not present in the call.",
+  "recommendation": "A 2-3 sentence narrative recommendation that names the specific SOPs that drove the disposition (cite their IDs like BAR-002) and tells the Specialist what to do next in clinical terms. Reference only what was discussed in the transcript - DO NOT mention EHR/CRM data, demographic context, or facts not present in the call.",
   "findings": [
     { "sop_id": "BAR-002", "title": "...", "category": "...", "finding": "...", "status": "...", "action": "...", "evidence": "short quoted snippet from transcript" }
   ],
@@ -403,8 +403,8 @@ How to build next_steps (do this LAST, after writing patient_summary, recommenda
 1. Re-read the patient_summary and recommendation you just wrote. Every step must be traceable to something stated there.
 2. Produce 3-7 short, imperative steps in execution order (most blocking first, mirroring the disposition priority).
 3. For each finding, produce one step prefixed with the SOP id in brackets, e.g. "[BAR-002] Order pre-op EGD and place case on hold until results are reviewed."
-4. After the SOP-tied steps, add a disposition-specific tail step (e.g. "Notify patient of ineligibility and close case in CRM" for Ineligible; "Schedule 90-day follow-up with cessation resources" for Deferred).
-5. End with one documentation step: "Document the call summary, disposition, and next-step assignments in the patient's CRM record."
+4. After the SOP-tied steps, add a disposition-specific tail step (e.g. "Notify patient of ineligibility and close case in EHR" for Ineligible; "Schedule 90-day follow-up with cessation resources" for Deferred).
+5. End with one documentation step: "Document the call summary, disposition, and next-step assignments in the patient's EHR record."
 6. Steps must be patient-specific (use names, dosages, timeframes pulled from the transcript when present). Do NOT emit generic placeholders like "follow up with patient."
 "@
 
@@ -638,11 +638,11 @@ function Handle-Request {
             $user = @{
                 id = "u-7421"
                 name = "Jordan G"
-                email = "jordan.g@carrum.health"
+                email = "jordan.g@premierhealth.example"
                 role = "Care Specialist"
                 team = "Bariatric & Joint Pod 2"
                 avatar_initials = "JG"
-                provider = "Carrum SSO (Okta)"
+                provider = "Premier SSO (Okta)"
                 signed_in_at = (Get-Date).ToString("o")
             }
             Write-Json $resp @{ ok = $true; user = $user }
@@ -653,7 +653,7 @@ function Handle-Request {
             $body = Read-RequestBody $req | ConvertFrom-Json
             $rec = Get-CrmByQuery -Name $body.name -PatientId $body.patient_id
             if ($rec) { Write-Json $resp @{ ok = $true; crm_record = $rec } }
-            else      { Write-Json $resp @{ ok = $true; crm_record = $null; note = "No record found in mock CRM. Demo only includes 3 sample patients." } }
+            else      { Write-Json $resp @{ ok = $true; crm_record = $null; note = "No record found in mock EHR. Demo only includes 3 sample patients." } }
             return
         }
 
@@ -664,8 +664,11 @@ function Handle-Request {
             # Mock: pretend we pulled a transcript from the named system.
             $sample = $null
             switch ($source) {
-                "googlemeet" {
+                "googleworkspace" {
                     $sample = "Specialist: Hi Sarah, thanks for hopping on. I want to walk through your bariatric case today.`nPatient: Sure. So you know I had a sleeve back in 2018 and I'm here because I'm thinking about a revision.`nSpecialist: Got it. Have you had an EGD recently?`nPatient: No, no one has ordered that yet.`nSpecialist: And nutrition - have you been seeing a registered dietitian?`nPatient: I saw a nutritionist once a few months ago.`n"
+                }
+                "five9" {
+                    $sample = "Specialist: Hi Bob, thanks for the time. We're talking through your right knee replacement.`nPatient: Yeah, the knee is killing me.`nSpecialist: Have you done a course of supervised physical therapy?`nPatient: Honestly no. I tried the gym a couple of times but never did real PT.`nSpecialist: And pain management - what are you taking?`nPatient: I've been on oxycodone every day for about eight months. My doctor has me on it.`nSpecialist: Got it.`n"
                 }
                 default {
                     $sample = "Specialist: Hi Maria, how are you today?`nPatient: I am doing alright. I still smoke about half a pack a day - I tried to quit last year but it did not stick. My last A1c was 7.6.`nSpecialist: Thanks for sharing.`n"
@@ -752,7 +755,7 @@ try {
 }
 
 $engineBanner = if ($AnthropicKey) { "Claude ($AnthropicModel)" } else { "local heuristic" }
-Write-Host "Carrum Call Transcript Analyzer listening on $prefix"
+Write-Host "Premier Call Transcript Analyzer listening on $prefix"
 Write-Host "Engine: $engineBanner"
 Write-Host "Open http://localhost:$Port/app.html in your browser. Ctrl+C to stop."
 

@@ -2,7 +2,7 @@
 
 A demo single-folder web app for Care Specialists. Sign in with mock SSO, look up a patient, paste/import a call transcript, click **Analyze**, and get a 3-4 sentence summary, an SOP-mapped recommendation, and patient-specific next steps with one-click automations.
 
-Designed to *feel* like an internal tool integrated with Salesforce / Google Meet / Outlook (all mocked). Built deliberately with **zero build tooling**: PowerShell 5.1 backend (`System.Net.HttpListener`) and a single self-contained HTML file frontend.
+Designed to *feel* like an internal tool integrated with Salesforce Health Cloud (EHR) / Google Workspace / Five9 / Outlook (all mocked). Ships as a Next.js app deployable to Vercel, with a PowerShell `HttpListener` backend retained for local Windows dev.
 
 ## Quick start
 
@@ -33,9 +33,9 @@ To enable AI engines, copy `.env.example` to `.env` (or `.env.local` for Next.js
 
 | Capability | Implementation |
 |---|---|
-| Mock Carrum SSO gate | `POST /api/sso/signin` returns hardcoded "Jordan G" |
+| Mock Premier SSO gate | `POST /api/sso/signin` returns hardcoded "Jordan G" |
 | CRM lookup | `POST /api/crm/lookup` against `crm.json` (3 sample patients) |
-| Transcript import | `POST /api/integrations/import?source=googlemeet` returns canned text |
+| Transcript import | `POST /api/integrations/import` with `source=googleworkspace` or `source=five9` returns canned text |
 | Transcript file upload | `.txt .md .log .html .json .csv .xml .srt .vtt .docx .pdf` (PDFs/DOCX via lazy-loaded CDN libraries) |
 | Structured-JSON flatten | Auto-flattens `{messages:[{speaker,text}]}` shapes into `Speaker: text` lines |
 | SOP analysis | `POST /api/analyze` -> Claude (Anthropic) or local heuristic |
@@ -65,4 +65,4 @@ The 3 case-study patients are inlined in `app.html` as quick-load buttons. Expec
 
 ## Status
 
-Prototype. All integrations (Salesforce, Google Meet, Epic, Outlook) are stubs. No persistence beyond JSON files on disk. No tests beyond the 3 inline smoke samples.
+Prototype. All integrations (Salesforce EHR, Google Workspace, Five9, Outlook) are stubs. No persistence beyond JSON files on disk. No tests beyond the 3 inline smoke samples.

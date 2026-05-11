@@ -7,11 +7,11 @@ export default async function handler(req, res) {
     user: {
       id: "u-7421",
       name: "Jordan G",
-      email: "jordan.g@carrum.health",
+      email: "jordan.g@premierhealth.example",
       role: "Care Specialist",
       team: "Bariatric & Joint Pod 2",
       avatar_initials: "JG",
-      provider: "Carrum SSO (Okta)",
+      provider: "Premier SSO (Okta)",
       signed_in_at: new Date().toISOString()
     }
   });

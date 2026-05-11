@@ -4,10 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-**Carrum Care Specialist Console** — a single-folder web app that helps Carrum Health Care Specialists analyze patient call transcripts against the Carrum SOP library and recommend next steps. Designed to *feel* like an internal Carrum tool integrated with Salesforce, Epic, Five9, and Outlook (all mocked).
+**Premier Care Specialist Console** — a single-folder web app that helps Care Specialists analyze patient call transcripts against the SOP library and recommend next steps. Designed to *feel* like an internal tool integrated with Salesforce Health Cloud (the patient's EHR), Google Workspace, Five9, and Outlook (all mocked).
 
 Three things on top of plain transcript-analysis:
-- **Mock SSO sign-in gate** (Carrum SSO / Okta) before the app loads. The signed-in specialist is hardcoded as "Jordan G".
+- **Mock SSO sign-in gate** (Premier SSO / Okta) before the app loads. The signed-in specialist is hardcoded as "Jordan G".
 - **Integration import/export stubs** — `Import from Five9 Call Recording` / `Import note from Epic EHR` buttons in the analyzer card pull canned transcripts; the export bar under Next Steps pushes the result to mocked Salesforce / Epic / Outlook endpoints.
 - **In-app SOP editor** — care leads can add/edit/delete SOPs from the UI; changes write back to `sops.json` on disk.
 
@@ -60,7 +60,7 @@ Claude mode may produce extra defensible findings; dispositions above must still
     │ Extract   ─▶ POST /api/extract            (standalone, Next.js only)
     │ Evaluate  ─▶ POST /api/evaluate           (Gemini scoring)
     │ SOP CRUD  ─▶ /api/sops[/{id}]
-    │ Import    ─▶ POST /api/integrations/import   (Google Meet canned)
+    │ Import    ─▶ POST /api/integrations/import   (Google Workspace / Five9 canned)
     │ Export    ─▶ POST /api/integrations/export   (per-step, mock)
     ▼
  ┌────────────────────────────┬────────────────────────────┐
@@ -129,9 +129,9 @@ After ANY change to the heuristic, re-run all 3 sample transcripts and confirm t
 
 ### Mock SSO / Integrations
 - `/api/sso/signin` returns a hardcoded `Jordan G / Care Specialist` user (the role/team fields exist in the response but are not displayed in the UI — only the name and avatar initials render in the user chip).
-- `/api/integrations/import` returns a canned transcript per source. Currently only `googlemeet` is wired in the UI ("Import from Google Meet"). The default branch covers any other source value.
+- `/api/integrations/import` returns a canned transcript per source. The UI wires two buttons: `googleworkspace` ("Import from Google Workspace") returning a bariatric sample, and `five9` ("Import from Five9") returning a joint/opioid sample. The default branch covers any other source value.
 - `/api/integrations/export` returns a fake `EXP-######` reference. Called per-step (one CTA per Next Steps row) with `step_index` + `step_text` in the body. Has artificial latency to *feel* real.
-- **Don't let "make these real" silently turn into real integrations.** They are deliberately stubs for the prototype — anything wiring them to real Salesforce/Epic/Google Meet must be explicitly scoped.
+- **Don't let "make these real" silently turn into real integrations.** They are deliberately stubs for the prototype — anything wiring them to real Salesforce/Google Workspace/Five9/Outlook must be explicitly scoped.
 
 ### Per-step thumbs gating (Next Steps card)
 Each step row in `renderSteps` carries state in `STEP_STATE[i] = { vote, done }`. Behavior:
@@ -205,7 +205,7 @@ The Anthropic catch block reads `$_.Exception.Response.GetResponseStream()` to s
 | `.env.example` | Template — copy to `.env` and add `ANTHROPIC_API_KEY` and `GEMINI_API_KEY`. |
 | `.gitignore` | `.env`, `.env.*` (with `!.env.example`), `node_modules/`, `.next/`, `.vercel/`. **Load-bearing for security.** |
 | `.gitattributes` | LF in repo, CRLF for `*.ps1` working trees, binary markers for png/pdf/docx etc. Eliminates LF↔CRLF warnings on Windows. |
-| `.claude/launch.json` | Preview config (`carrum-analyzer`). |
+| `.claude/launch.json` | Preview config (`premier-analyzer`). |
 
 ### Git / repository
 
