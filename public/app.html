@@ -128,11 +128,15 @@
   .status.Cleared           { background: var(--green-soft);  color: #166534; }
   .status.Hold              { background: var(--blue-soft);   color: #1d4ed8; }
   .status.Action            { background: var(--blue-soft);   color: #1d4ed8; }
+  .status.ActionRequired    { background: var(--blue-soft);   color: #1d4ed8; }
   .status.Review            { background: var(--yellow-soft); color: #854d0e; }
   .status.Revision          { background: var(--yellow-soft); color: #854d0e; }
+  .status.RevisionCase      { background: var(--yellow-soft); color: #854d0e; }
   .status.HighComplexity    { background: var(--orange-soft); color: #9a3412; }
   .status.Deferred          { background: var(--orange-soft); color: #9a3412; }
   .status.Ineligible        { background: var(--red-soft);    color: #991b1b; }
+  /* "Pending - Callback Required" becomes "Pending-CallbackRequired" after statusClass() */
+  .status.Pending-CallbackRequired { background: var(--surface-2); color: var(--text-2); border: 1px dashed var(--border-strong); }
 
   /* findings */
   .finding { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--surface-2); }
@@ -907,6 +911,24 @@ function renderResults(r){
         </div>`).join("")}
     </div>
 
+    ${(r.unresolvable && r.unresolvable.length) ? `
+    <div class="card">
+      <h2>Unresolvable Rules (${r.unresolvable.length})</h2>
+      <div class="muted" style="font-size:12px; margin-bottom:8px;">These SOP rules could not be evaluated because their required clinical flags were not captured in the call. They are excluded from the disposition and require follow-up data before re-evaluation.</div>
+      ${r.unresolvable.map(u => `
+        <div class="finding" style="border-style: dashed;">
+          <header>
+            <div>
+              <span class="sop-id">${escapeHtml(u.id || "")}</span>
+              <h3 style="display:inline; margin-left:6px;">${escapeHtml(u.finding || "")}</h3>
+            </div>
+            <span class="status Pending-CallbackRequired">Pending</span>
+          </header>
+          ${(u.missing_flags && u.missing_flags.length) ? `<p><strong>Missing flags:</strong> ${escapeHtml(u.missing_flags.join(", "))}</p>` : ""}
+        </div>`).join("")}
+    </div>
+    ` : ""}
+
     <div class="card hidden" id="disagreeCard">
       <div class="disagree-banner">
         <strong>Recommendation declined</strong>
@@ -1112,7 +1134,7 @@ const PATIENT_MESSAGES_BY_SOP = {
 function isPatientCommStep(stepText){
   const m = String(stepText).match(/^\[([A-Z]{2,4}-\d{3})\]/);
   if (m && PATIENT_COMM_SOPS.has(m[1])) return true;
-  return /instruct|refer|provide|educate|notify patient|inform .*patient|send .*resources|cessation/i.test(stepText);
+  return /instruct|refer|provide|educate|notify patient|inform .*patient|send .*resources|cessation|questionnaire|follow.?up questionnaire/i.test(stepText);
 }
 
 function getPatientMessageForStep(stepText){
@@ -1124,6 +1146,8 @@ function getPatientMessageForStep(stepText){
     return "We'll check back with you in 90 days. In the meantime, I'll share some support resources so you can prepare.";
   if (/hold|outstanding records/i.test(stepText))
     return "Your case is currently on hold while we wait on a few items. I'll let you know as soon as we have what we need to move forward.";
+  if (/follow.?up questionnaire|questionnaire/i.test(stepText))
+    return "To make sure we route your case correctly, I'll need a bit more information than we captured on our call. I'll send you a short follow-up questionnaire shortly - please fill it out at your convenience so we can move things forward.";
   return "Following up on our call, I wanted to share the next steps for your case.";
 }
 

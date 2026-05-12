@@ -136,7 +136,7 @@ Contract for the patient-panel display: `name`, `age`, `sex`, `location`, `emplo
 ## Key behaviors / gotchas
 
 ### Disposition priority (most blocking first)
-`Ineligible (1) > Deferred (2) > High Complexity (3) > Review (4) > Revision Case (5) > Hold (6) > Action Required (7)`. `Cleared` is an **internal-only** sentinel (priority 99) used when no findings fire. It is not in `sops.json#status_priority` and is not selectable in the SOP editor. Four places must stay in sync:
+`Pending - Callback Required (0) > Ineligible (1) > Deferred (2) > High Complexity (3) > Review (4) > Revision Case (5) > Hold (6) > Action Required (7)`. `Cleared` and `Pending - Callback Required` are **internal-only** sentinels — neither is in `sops.json#status_priority` and neither is selectable in the SOP editor. `Pending - Callback Required` is set by the post-process in `pages/api/analyze.js` when the extractor reports incompleteness (`null_flag_count >= 3` OR `requires_human_review === true`); see "Incomplete-transcript post-process" below. Four places must stay in sync:
 1. `STATUS_PRIORITY` in `lib/disposition.js`.
 2. `$STATUS_PRIORITY` in `server.ps1`.
 3. The numbered list in the Claude analysis system prompt (`lib/analyze-claude.js` and `server.ps1`).
@@ -156,6 +156,14 @@ The system prompt in `lib/analyze-claude.js` (mirrored in `server.ps1`) is load-
 3. **Strict priority enforcement** — disposition priority is given as a numbered list with explicit instructions: "take the status of EVERY finding, look up its number, pick the LOWEST, copy verbatim." Without this, Claude tended to pick the *last-mentioned* status instead of the most-blocking one (e.g., Hold instead of Revision Case for Sarah).
 4. **`next_steps` ordering instruction** — Claude must write `next_steps` *last*, deriving each step from the already-written `patient_summary` and `recommendation`, sequenced in priority order, with the documentation step pinned to the end.
 5. **Robust JSON extraction** — the response parser locates the outermost `{...}` and parses that, instead of just stripping code fences. Claude sometimes wraps JSON in prose; the simpler approach broke with `Invalid JSON primitive: ..`. Don't simplify back to fence-stripping.
+
+### Incomplete-transcript post-process (Next.js only)
+`pages/api/analyze.js` runs an `applyIncompleteTranscriptRule` pass after both engines resolve. It uses the extractor's `clinical_flags` to:
+
+1. **Per-rule unresolvable check** — for every SOP rule applicable to the patient's `case_type`, if any of the rule's `required_flags` has a null value in `extraction.clinical_flags`, the rule's id + finding + missing-flag list goes into `unresolvable[]`. Findings the analyzer already produced whose `sop_id` is in `unresolvable` are removed from `findings`.
+2. **Overall incompleteness override** — if `extraction_metadata.null_flag_count >= 3` OR `extraction_metadata.requires_human_review === true`, the analyzer's `overall_disposition` is overridden to `{ status: "Pending - Callback Required", reason: "Insufficient data to evaluate SOPs; follow-up needed." }` and `next_steps` is replaced with a dynamic questionnaire instruction listing the missing topics (built from `FLAG_TO_TOPIC`) plus the standard documentation step.
+
+The response shape gains a new top-level `unresolvable[]` field with `{ id, finding, missing_flags }`. The frontend renders an "Unresolvable Rules" card after Findings when this list is non-empty. Local-heuristic-only mode skips the post-process because there's no extraction. PowerShell mode lacks `/api/extract` so this pipeline change does not apply there.
 
 ### Gemini evaluator (4-dimension QA scoring)
 `/api/evaluate` returns `{ ok, evaluator, model, evaluation }` where `evaluation` carries four named dimensions (0.0–1.0 floats):
