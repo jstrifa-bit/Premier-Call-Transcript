@@ -376,6 +376,22 @@
   <div class="footer-note">Premier Care Specialist Console - demo environment.</div>
 </div>
 
+<!-- ---------- Disagree notes modal ---------- -->
+<div class="modal-bg" id="disagreeModal">
+  <div class="modal">
+    <h2>Specialist notes</h2>
+    <p class="muted" style="margin-top:0; font-size:13px;">You've indicated you disagree with the recommendation. Capture your own notes or alternative recommendation, then push them to the patient's EHR profile, or cancel to revisit the decision.</p>
+    <div class="field">
+      <label for="disagreeNotes">Notes / alternative recommendation</label>
+      <textarea id="disagreeNotes" style="min-height:180px;" placeholder="Type your notes or alternative recommendation here..."></textarea>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" onclick="onDisagreeCancel()">Cancel</button>
+      <button class="btn" onclick="onDisagreePush()">Push Notes to Patient Profile</button>
+    </div>
+  </div>
+</div>
+
 <!-- ---------- SOP edit modal ---------- -->
 <div class="modal-bg" id="sopModal">
   <div class="modal">
@@ -415,6 +431,7 @@ let SOPS = [];
 let LAST_RESULT = null;
 let EDITING_SOP_ID = null;
 let STEP_STATE = []; // [{ vote: null|'up'|'down', done: false }]
+let COPIED_STEP_MESSAGES = []; // [{stepIndex, sopId, stepText, message}] - captured per analysis
 const SESSION_TRANSCRIPT_HASHES = new Set();
 
 // Allowed upload extensions - must match the `accept` attribute on #fileInput.
@@ -804,6 +821,7 @@ function renderResults(r){
   const findings = r.findings || [];
   const steps = r.next_steps || [];
   STEP_STATE = steps.map(() => ({ vote: null, done: false }));
+  COPIED_STEP_MESSAGES = [];
 
   let html = `
     <div class="card">
@@ -994,8 +1012,49 @@ function onRecoAgree(){
 
 function onRecoDisagree(){
   if (!confirm("Please confirm: Do you DISAGREE with this recommendation?")) return;
+  // Open the notes modal. The decision is not locked until the Specialist
+  // either pushes notes or cancels.
+  const ta = $("disagreeNotes"); if (ta) ta.value = "";
+  $("disagreeModal").classList.add("show");
+}
+
+function onDisagreeCancel(){
+  // Return to the un-decided state so the Specialist can choose again.
+  $("disagreeModal").classList.remove("show");
   const dec = $("recoDecision");
-  if (dec) dec.innerHTML = `<div class="reco-decision-locked disagree">You disagreed with the recommendation. Please return to the Patient profile in the EHR system.</div>`;
+  if (dec) dec.innerHTML = `
+    <div class="muted" style="font-size:12px; margin: 12px 0 6px;">Do you agree with this recommendation?</div>
+    <div class="reco-decision-row">
+      <button class="btn small" onclick="onRecoAgree()">Agree</button>
+      <button class="btn secondary small" onclick="onRecoDisagree()">Disagree</button>
+    </div>`;
+  const dis = $("disagreeCard"); if (dis) dis.classList.add("hidden");
+}
+
+async function onDisagreePush(){
+  const ta = $("disagreeNotes");
+  const notes = ta ? ta.value.trim() : "";
+  if (!notes) { toast("Please add notes before pushing to the patient profile."); return; }
+  try {
+    const r = await api("/api/integrations/export", {
+      method: "POST",
+      body: JSON.stringify({
+        target: "ehr",
+        kind: "disagree_notes",
+        notes,
+        payload: LAST_RESULT
+      })
+    });
+    if (r.ok) toast("Notes pushed to patient profile - ref " + r.reference);
+    else { toast("Push failed: " + (r.error || "unknown")); return; }
+  } catch (e) {
+    toast("Push failed: " + e.message);
+    return;
+  }
+  // Lock the disagree state and surface the guidance banner.
+  $("disagreeModal").classList.remove("show");
+  const dec = $("recoDecision");
+  if (dec) dec.innerHTML = `<div class="reco-decision-locked disagree">Notes pushed to the patient profile. Please return to the EHR system to review the case.</div>`;
   const ns = $("nextStepsWrapper"); if (ns) ns.classList.add("hidden");
   const dis = $("disagreeCard"); if (dis) dis.classList.remove("hidden");
 }
@@ -1045,38 +1104,21 @@ async function onCopyStepMessage(i){
   const patientName = (LAST_RESULT && LAST_RESULT.crm_record && LAST_RESULT.crm_record.name) || "Patient";
   const firstName = patientName.split(/\s+/)[0];
   const specialistName = (CURRENT_USER && CURRENT_USER.name) || "Care Specialist";
-  const msg = `Hi ${firstName},\n\nThank you for taking the time to speak with me. ${getPatientMessageForStep(stepText)}\n\nPlease don't hesitate to reach out if you have any questions.\n\nBest regards,\n${specialistName}\nCare Specialist, Premier Health`;
+  const messageBody = getPatientMessageForStep(stepText);
+  const fullMsg = `Hi ${firstName},\n\nThank you for taking the time to speak with me. ${messageBody}\n\nPlease don't hesitate to reach out if you have any questions.\n\nBest regards,\n${specialistName}\nCare Specialist, Premier Health`;
   try {
-    await navigator.clipboard.writeText(msg);
-    toast("Message copied to clipboard");
+    await navigator.clipboard.writeText(fullMsg);
+    const m = String(stepText).match(/^\[([A-Z]{2,4}-\d{3})\]/);
+    const sopId = m ? m[1] : null;
+    // Track for the eventual Draft Email aggregation. Dedupe by stepIndex.
+    if (!COPIED_STEP_MESSAGES.some(c => c.stepIndex === i)) {
+      COPIED_STEP_MESSAGES.push({ stepIndex: i, sopId, stepText, message: messageBody });
+    }
+    toast("Message copied (" + COPIED_STEP_MESSAGES.length + " saved for Draft Email)");
+    renderDraftEmailControls();
   } catch (e) {
     toast("Copy failed: " + e.message);
   }
-}
-
-function buildDraftEmail(){
-  const r = LAST_RESULT; if (!r) return "";
-  const patientName = (r.crm_record && r.crm_record.name) || "Patient";
-  const firstName = patientName.split(/\s+/)[0];
-  const caseType = (r.crm_record && r.crm_record.case_type) || "";
-  const specialistName = (CURRENT_USER && CURRENT_USER.name) || "Care Specialist";
-  const disposition = (r.overall_disposition && r.overall_disposition.status) || "";
-  const steps = r.next_steps || [];
-  const commSteps = steps.filter(isPatientCommStep);
-  const bulletText = commSteps.length
-    ? commSteps.map(s => "  - " + getPatientMessageForStep(s)).join("\n")
-    : "  - I will follow up with detailed next steps shortly.";
-  const dispBlurb = {
-    "Ineligible": "After reviewing what we discussed, your case does not meet our program eligibility criteria at this time. I'll follow up to walk through any alternative options.",
-    "Deferred": "We will need to defer your case for 90 days. In the meantime, I will share resources to support you in this time.",
-    "Hold": "Your case is on hold pending completion of the items below. Once those are in, I will move your case forward.",
-    "Action Required": "There are a few items we need to complete before we can advance your case.",
-    "High Complexity": "Your case will need additional clinical review. I will keep you informed as we coordinate next steps.",
-    "Review": "Your case is being routed for medical review and we will be back in touch shortly.",
-    "Revision Case": "Your case will be routed to our Revision pathway for specialized review."
-  }[disposition] || "I will be in touch shortly with the next steps.";
-
-  return `Subject: Following up on your call - next steps\n\nDear ${firstName},\n\nThank you for taking the time to speak with me today${caseType ? " about your " + caseType.toLowerCase() + " case" : ""}. ${dispBlurb}\n\nHere are the next steps to keep your case moving forward:\n\n${bulletText}\n\nPlease don't hesitate to reach out with any questions - I'm here to help you through this process.\n\nBest regards,\n${specialistName}\nCare Specialist, Premier Health`;
 }
 
 async function onCopyEmail(){
@@ -1147,17 +1189,52 @@ function renderSteps(){
       </li>`;
   }).join("");
 
-  // Render the draft email below the steps list.
-  const emailContainer = $("emailDraftContainer");
-  if (emailContainer) {
-    const draft = buildDraftEmail();
-    emailContainer.innerHTML = `
-      <h3 class="email-draft-heading">Draft patient email</h3>
-      <div class="muted" style="font-size:12px; margin-bottom:8px;">Edit as needed, then paste into Outlook or Gmail.</div>
-      <textarea id="emailDraftText" class="email-draft">${escapeHtml(draft)}</textarea>
-      <div style="display:flex; gap:8px; margin-top:8px;">
-        <button class="btn small" onclick="onCopyEmail()">Copy Email</button>
-      </div>`;
+  renderDraftEmailControls();
+}
+
+function renderDraftEmailControls(){
+  const emailContainer = $("emailDraftContainer"); if (!emailContainer) return;
+  const count = COPIED_STEP_MESSAGES.length;
+  emailContainer.innerHTML = `
+    <h3 class="email-draft-heading">Draft patient email</h3>
+    <div class="muted" style="font-size:12px; margin-bottom:8px;">
+      Use the Copy Message button on each comm step you want to include (${count} copied so far). When you're ready, click Draft Email to assemble a patient-facing email.
+    </div>
+    <button class="btn small" onclick="onDraftEmail()" ${count === 0 ? "disabled" : ""}>Draft Email${count > 0 ? " (" + count + " step" + (count === 1 ? "" : "s") + ")" : ""}</button>
+    <div id="emailDraftResult" style="margin-top:12px;"></div>
+  `;
+}
+
+async function onDraftEmail(){
+  if (COPIED_STEP_MESSAGES.length === 0) { toast("Copy at least one step message first."); return; }
+  const resultDiv = $("emailDraftResult");
+  if (resultDiv) resultDiv.innerHTML = `<div class="muted" style="font-size:13px;">Drafting with Claude... <span class="spinner" style="display:inline-block; vertical-align:middle;"></span></div>`;
+  try {
+    const r = LAST_RESULT || {};
+    const resp = await api("/api/draft-email", {
+      method: "POST",
+      body: JSON.stringify({
+        patient_name: (r.crm_record && r.crm_record.name) || "Patient",
+        case_type: (r.crm_record && r.crm_record.case_type) || "",
+        disposition: (r.overall_disposition && r.overall_disposition.status) || "",
+        copied_messages: COPIED_STEP_MESSAGES.map(m => ({ sop_id: m.sopId, message: m.message })),
+        specialist_name: (CURRENT_USER && CURRENT_USER.name) || "Care Specialist"
+      })
+    });
+    if (!resp.ok) throw new Error(resp.error || "draft failed");
+    const subject = resp.subject || "Following up on your call";
+    const body = resp.body || "";
+    const full = `Subject: ${subject}\n\n${body}`;
+    if (resultDiv) {
+      resultDiv.innerHTML = `
+        <textarea id="emailDraftText" class="email-draft">${escapeHtml(full)}</textarea>
+        <div style="display:flex; gap:8px; margin-top:8px; align-items:center;">
+          <button class="btn small" onclick="onCopyEmail()">Copy Email</button>
+          <span class="muted" style="font-size:11px;">Edit before copying as needed.</span>
+        </div>`;
+    }
+  } catch (e) {
+    if (resultDiv) resultDiv.innerHTML = `<div class="muted" style="font-size:13px; color:var(--red);">Failed to draft email: ${escapeHtml(e.message)}</div>`;
   }
 }
 
