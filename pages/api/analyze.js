@@ -40,31 +40,34 @@ function applyIncompleteTranscriptRule({ extraction, result, crm }) {
   const caseType = (crm?.case_type || "").toLowerCase();
   const applicable = sops.filter(s => (s.applies_to || []).some(at => String(at).toLowerCase() === caseType));
 
-  // Per-rule unresolvable check: any required_flag null -> rule cannot evaluate.
+  // Analyzer findings are authoritative - they come from direct transcript
+  // evidence with quotes. Do NOT strip them based on extractor null flags;
+  // the extractor may have been bashful where the analyzer had clear signal.
+  const newFindings = result.findings || [];
+  const firedIds = new Set(newFindings.map(f => f.sop_id));
+
+  // Unresolvable = rules the analyzer did NOT fire AND whose required_flags
+  // include at least one null in extraction. These are rules with no signal
+  // from either path; surface them so the Specialist knows what data is gone.
   const unresolvable = [];
   for (const rule of applicable) {
-    for (const f of (rule.required_flags || [])) {
-      if (flagValueFromExtraction(extraction, f) === null) {
-        unresolvable.push({ id: rule.id, finding: rule.finding, missing_flags: (rule.required_flags || []).filter(rf => flagValueFromExtraction(extraction, rf) === null) });
-        break;
-      }
+    if (firedIds.has(rule.id)) continue;
+    const missing = (rule.required_flags || []).filter(rf => flagValueFromExtraction(extraction, rf) === null);
+    if (missing.length > 0) {
+      unresolvable.push({ id: rule.id, finding: rule.finding, missing_flags: missing });
     }
   }
-  const unresolvableIds = new Set(unresolvable.map(u => u.id));
-
-  // Remove findings whose sop_id is unresolvable - the analyzer should not
-  // route on rules whose flags couldn't be read.
-  const newFindings = (result.findings || []).filter(f => !unresolvableIds.has(f.sop_id));
 
   const meta = extraction.extraction_metadata || {};
   const incomplete = (Number(meta.null_flag_count) >= 3) || meta.requires_human_review === true;
 
-  if (!incomplete) {
+  // Pending override only when the analyzer found NOTHING and extraction is
+  // incomplete - i.e. truly sparse case with no signal anywhere. If the
+  // analyzer fired even one finding with transcript evidence, trust it.
+  if (!incomplete || newFindings.length > 0) {
     return { findings: newFindings, next_steps: result.next_steps, overall_disposition: result.overall_disposition, unresolvable };
   }
 
-  // Incompleteness override: status -> Pending - Callback Required;
-  // next_steps -> dynamic follow-up questionnaire built from missing flags.
   const missingTopics = [];
   for (const rule of applicable) {
     for (const f of (rule.required_flags || [])) {
@@ -79,7 +82,7 @@ function applyIncompleteTranscriptRule({ extraction, result, crm }) {
     : "Send follow-up questionnaire to capture missing clinical history.";
 
   return {
-    findings: newFindings,
+    findings: [],
     next_steps: [
       questionnaire,
       "Document the call summary and disposition in the patient's EHR record."
