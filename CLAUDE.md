@@ -205,7 +205,7 @@ Returns 503 when `ANTHROPIC_API_KEY` is missing; the frontend treats 503 as skip
 `onAnalyze` enforces that if an EHR record is loaded (`CURRENT_CRM != null`), the transcript must mention at least one of `CURRENT_CRM.name_aliases` (or the full `name`). On mismatch it shows a blocking `alert()` and calls `onLookupReset()` to clear name, ID, transcript, and prior results. If lookup was skipped (no CRM loaded), the analyzer runs against the transcript alone — `findCrmFromTranscript` may still backfill a record by alias scan server-side.
 
 ### HITL Agree/Disagree gate on Recommendation
-After analysis renders, the Recommendation pane shows **Agree** / **Disagree** CTAs. Each click prompts `confirm()` before proceeding.
+After analysis renders, the Recommendation pane shows **Agree** / **Disagree** CTAs. Each click opens `customConfirm(...)` — an in-page modal (`#confirmModal`) that replaces the browser-native `confirm()` so the popup doesn't show the `<vercel-domain> says` title that browsers force on `confirm()`/`alert()`. The helper is `async customConfirm(message, { title, okLabel, cancelLabel })` returning `Promise<boolean>`. Other confirms in the app (duplicate-hash check, long-transcript warning, delete-SOP) still use the native `confirm()` intentionally — swap them via `customConfirm` if you need consistent styling.
 - **Agree** (confirmed) → green badge + the **Next Steps card is revealed** (hidden by default via `#nextStepsWrapper`).
 - **Disagree** (confirmed) → opens `#disagreeModal`, a notes modal with a free-form textarea and two CTAs:
   - **Cancel** → closes the modal and resets the recoDecision UI so the Specialist can choose again. The decision is never committed.
@@ -236,7 +236,7 @@ Both copy actions use `navigator.clipboard.writeText`, which requires HTTPS or `
 
 ### Mock SSO / Integrations
 - `/api/sso/signin` returns a hardcoded `Jordan G / Care Specialist` user.
-- `/api/integrations/import` source values: `googleworkspace` (bariatric Sarah sample), `five9` (joint/opioid Bob sample), default (Maria smoker sample). The two import buttons render brand emblems via inline SVG (`.brand-icon` — Google multicolor "G", Five9 teal "5" lettermark).
+- `/api/integrations/import` is a stub that returns canned transcripts per source (`googleworkspace` / `five9` / default). **Currently not called from the UI** — all three import buttons (Upload File / Import from Google Workspace / Import from Five9) trigger `#fileInput.click()` so the Specialist always picks a `.txt` from their local file system. The branded buttons exist for demo polish and visually carry inline-SVG emblems via `.brand-icon`. The endpoint and the `onImportSample` JS helper are dead-code paths kept for future re-wiring; safe to delete if you don't need them.
 - `/api/integrations/export` returns a fake `EXP-######` reference. Called from multiple places with different `kind` values: per-step EHR CTAs (no `kind`, just `step_index`/`step_text`), step thumbs-down (`kind: step_disagree_notes`), recommendation Disagree (`kind: disagree_notes`). All carry the original `LAST_RESULT` as payload.
 - **Don't let "make these real" silently turn into real integrations.** They are deliberately stubs — anything wiring them to real Salesforce/Google Workspace/Five9/Outlook must be explicitly scoped.
 
