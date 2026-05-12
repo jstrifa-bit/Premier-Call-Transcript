@@ -114,12 +114,12 @@ Both engines must produce this shape. Changing it requires touching `lib/analyze
 Each rule:
 ```
 { id, category, applies_to: ["joint","bariatric"], finding, case_status, action,
-  extracted_flags: [...], trigger_logic: "..." }
+  required_flags: [...], trigger_logic: "..." }
 ```
 
 - `applies_to` is lowercase and gates the rule against `crm_record.case_type` (case-insensitive). Rules outside the patient's case type are skipped by the local engine, and the Claude prompt is told to do the same.
 - `case_status` is the disposition contributed when the rule fires. The frontend mirrors `status_colors`/`status_priority` in its CSS classes — keep them in sync if you add statuses.
-- `extracted_flags` and `trigger_logic` are documentation/intent fields. The local engine doesn't evaluate `trigger_logic` directly; each SOP id has a hand-written guardrail block in `evaluateRule` (`lib/analyze-local.js`) that implements the same intent. Claude sees these fields verbatim in the prompt.
+- `required_flags` and `trigger_logic` are documentation/intent fields. The local engine doesn't evaluate `trigger_logic` directly; each SOP id has a hand-written guardrail block in `evaluateRule` (`lib/analyze-local.js`) that implements the same intent. Claude sees these fields verbatim in the prompt.
 
 ## Extraction schema (schemas/extraction-schema.json)
 

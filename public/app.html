@@ -439,7 +439,7 @@
     </div>
     <div class="field"><label>Finding (when triggered)</label><input id="ed_finding" placeholder="No Endoscopy (EGD) in last 3 months" /></div>
     <div class="field"><label>Action</label><textarea id="ed_action" style="min-height:60px;"></textarea></div>
-    <div class="field"><label>Extracted flags (comma-separated)</label><input id="ed_flags" placeholder="endoscopy_within_3_months" /></div>
+    <div class="field"><label>Required flags (comma-separated)</label><input id="ed_flags" placeholder="endoscopy_within_3_months" /></div>
     <div class="field"><label>Trigger logic</label><textarea id="ed_trigger" style="min-height:60px;" placeholder="endoscopy_within_3_months == false"></textarea></div>
     <div class="modal-foot">
       <button class="btn ghost" onclick="closeSopEditor()">Cancel</button>
@@ -1369,7 +1369,7 @@ function renderSopGrid(){
 }
 function openSopEditor(id){
   EDITING_SOP_ID = id;
-  const s = id ? SOPS.find(x => x.id === id) : { id:"", category:"General", case_status:"Action Required", applies_to:[], finding:"", action:"", extracted_flags:[], trigger_logic:"" };
+  const s = id ? SOPS.find(x => x.id === id) : { id:"", category:"General", case_status:"Action Required", applies_to:[], finding:"", action:"", required_flags:[], trigger_logic:"" };
   if (!s) return;
   $("sopModalTitle").textContent = id ? "Edit SOP "+id : "Add SOP";
   $("ed_id").value = s.id; $("ed_id").disabled = !!id;
@@ -1378,7 +1378,7 @@ function openSopEditor(id){
   $("ed_applies_to").value = (s.applies_to || []).join(", ");
   $("ed_finding").value = s.finding || "";
   $("ed_action").value = s.action || "";
-  $("ed_flags").value = (s.extracted_flags || []).join(", ");
+  $("ed_flags").value = (s.required_flags || []).join(", ");
   $("ed_trigger").value = s.trigger_logic || "";
   $("sopModal").classList.add("show");
 }
@@ -1393,7 +1393,7 @@ async function onSaveSop(){
     applies_to: $("ed_applies_to").value.split(",").map(s=>s.trim().toLowerCase()).filter(Boolean),
     finding: $("ed_finding").value.trim(),
     action: $("ed_action").value.trim(),
-    extracted_flags: $("ed_flags").value.split(",").map(s=>s.trim()).filter(Boolean),
+    required_flags: $("ed_flags").value.split(",").map(s=>s.trim()).filter(Boolean),
     trigger_logic: $("ed_trigger").value.trim()
   };
   const url = EDITING_SOP_ID ? "/api/sops/"+encodeURIComponent(EDITING_SOP_ID) : "/api/sops";

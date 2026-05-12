@@ -1,4 +1,4 @@
-{
+﻿{
   "version": "2.0",
   "last_updated": "2026-05-07",
   "rules": [
@@ -9,7 +9,7 @@
       "finding": "Dental visit > 6 months ago OR pending dental work",
       "case_status": "Action Required",
       "action": "Instruct patient to complete dental clearance before Consultation.",
-      "extracted_flags": [
+      "required_flags": [
         "dental_visit_within_6_months",
         "pending_dental_work"
       ],
@@ -22,7 +22,7 @@
       "finding": "Active Smoker or quit within last 3 months",
       "case_status": "Deferred",
       "action": "Refer to Smoking Cessation education/support; pause case for 3 months.",
-      "extracted_flags": [
+      "required_flags": [
         "active_smoker",
         "quit_smoking_within_3_months"
       ],
@@ -35,7 +35,7 @@
       "finding": "No attempt at PT or Exercise",
       "case_status": "Ineligible",
       "action": "Refer to 6-12 week conservative physical therapy trial.",
-      "extracted_flags": [
+      "required_flags": [
         "attempted_pt"
       ],
       "trigger_logic": "attempted_pt == false"
@@ -47,7 +47,7 @@
       "finding": "HbA1c > 7.0",
       "case_status": "Review",
       "action": "Flag for Clinical MD Review for glucose optimization.",
-      "extracted_flags": [
+      "required_flags": [
         "hba1c_value"
       ],
       "trigger_logic": "hba1c_value > 7.0"
@@ -59,7 +59,7 @@
       "finding": "Daily Opioid use greater than 3 months",
       "case_status": "High Complexity",
       "action": "Flag for Anesthesia High Risk Consult.",
-      "extracted_flags": [
+      "required_flags": [
         "daily_opioid_use",
         "opioid_duration_months"
       ],
@@ -72,7 +72,7 @@
       "finding": "History of prior weight-loss surgery",
       "case_status": "Revision Case",
       "action": "Flag as Revision Case; requires specialized surgical review.",
-      "extracted_flags": [
+      "required_flags": [
         "prior_weight_loss_surgery"
       ],
       "trigger_logic": "prior_weight_loss_surgery == true"
@@ -84,7 +84,7 @@
       "finding": "No Endoscopy (EGD) in last 3 months",
       "case_status": "Action Required",
       "action": "Instruct patient to schedule EGD after Consultation.",
-      "extracted_flags": [
+      "required_flags": [
         "endoscopy_within_3_months"
       ],
       "trigger_logic": "endoscopy_within_3_months == false"
@@ -96,7 +96,7 @@
       "finding": "No Registered Dietician (RD) identified",
       "case_status": "Hold",
       "action": "Provide in-network RD list; patient must confirm RD before referral.",
-      "extracted_flags": [
+      "required_flags": [
         "has_registered_dietician"
       ],
       "trigger_logic": "has_registered_dietician == false"

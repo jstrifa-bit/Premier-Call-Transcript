@@ -360,7 +360,7 @@ function Invoke-ClaudeAnalysis {
     $sops = (Get-Sops).rules
     $sopBlock = ($sops | ForEach-Object {
         $applies = ($_.applies_to -join ", ")
-        "- $($_.id) [$($_.category) / $($_.case_status)] applies_to=[$applies]: finding='$($_.finding)' | trigger_logic='$($_.trigger_logic)' | action='$($_.action)'"
+        "- $($_.id) [$($_.category) / $($_.case_status)] applies_to=[$applies] required_flags=[$($_.required_flags -join ', ')]: finding='$($_.finding)' | trigger_logic='$($_.trigger_logic)' | action='$($_.action)'"
     }) -join "`n"
 
     # Case type is the ONLY thing we pass from CRM, and only for applies_to gating.
