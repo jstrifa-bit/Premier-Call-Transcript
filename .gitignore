@@ -2,6 +2,12 @@
 .env
 .env.*
 !.env.example
+ANTHROPIC_API_KEY=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
+GEMINI_API_KEY=AIzaSyDSISIGPgzSpEzQx822odLmXdZiyA8j78w
+# Environment variables
+.env
+.env.local
+.env.production
 
 # Local-only Claude Code settings (per-user permissions, not shareable)
 .claude/settings.local.json
