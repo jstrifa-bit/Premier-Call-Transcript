@@ -352,11 +352,11 @@
         <div class="import-strip">
           <input type="file" id="fileInput" accept=".txt,.md,.log,.html,.htm,.json,.csv,.xml,.srt,.vtt,.docx,.pdf" style="display:none" onchange="onFileChosen(event)" />
           <button class="btn secondary small" onclick="document.getElementById('fileInput').click()">Upload file</button>
-          <button class="btn secondary small" onclick="onImportSample('googleworkspace')">
+          <button class="btn secondary small" onclick="document.getElementById('fileInput').click()">
             <svg class="brand-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/><path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/><path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 35.091 26.715 36 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/><path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/></svg>
             Import from Google Workspace
           </button>
-          <button class="btn secondary small" onclick="onImportSample('five9')">
+          <button class="btn secondary small" onclick="document.getElementById('fileInput').click()">
             <svg class="brand-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#00B5E2"/><text x="12" y="16.5" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="13" fill="white">5</text></svg>
             Import from Five9
           </button>
@@ -385,6 +385,18 @@
   </div>
 
   <div class="footer-note">Premier Care Specialist Console - demo environment.</div>
+</div>
+
+<!-- ---------- Generic confirm modal (no "domain says" prefix) ---------- -->
+<div class="modal-bg" id="confirmModal">
+  <div class="modal" style="max-width:480px;">
+    <h2 id="confirmModalTitle">Please confirm</h2>
+    <p id="confirmModalBody" class="muted" style="font-size:14px; margin:6px 0 16px;"></p>
+    <div class="modal-foot">
+      <button class="btn ghost" id="confirmModalCancel">Cancel</button>
+      <button class="btn" id="confirmModalOk">Confirm</button>
+    </div>
+  </div>
 </div>
 
 <!-- ---------- Step thumbs-down notes modal ---------- -->
@@ -1052,16 +1064,40 @@ function renderEvaluation(ev, model){
     ${notes}`;
 }
 
-function onRecoAgree(){
-  if (!confirm("Please confirm: Do you AGREE with this recommendation and want to proceed to the next steps?")) return;
+// Custom in-page confirm that avoids the browser-native `<domain> says` title.
+function customConfirm(message, { title = "Please confirm", okLabel = "Confirm", cancelLabel = "Cancel" } = {}) {
+  return new Promise(resolve => {
+    $("confirmModalTitle").textContent = title;
+    $("confirmModalBody").textContent = message;
+    const okBtn = $("confirmModalOk");
+    const cancelBtn = $("confirmModalCancel");
+    okBtn.textContent = okLabel;
+    cancelBtn.textContent = cancelLabel;
+    const cleanup = () => {
+      $("confirmModal").classList.remove("show");
+      okBtn.removeEventListener("click", onOk);
+      cancelBtn.removeEventListener("click", onCancel);
+    };
+    const onOk = () => { cleanup(); resolve(true); };
+    const onCancel = () => { cleanup(); resolve(false); };
+    okBtn.addEventListener("click", onOk);
+    cancelBtn.addEventListener("click", onCancel);
+    $("confirmModal").classList.add("show");
+  });
+}
+
+async function onRecoAgree(){
+  const ok = await customConfirm("Do you AGREE with this recommendation and want to proceed to the next steps?", { title: "Confirm recommendation", okLabel: "Yes, Agree" });
+  if (!ok) return;
   const dec = $("recoDecision");
   if (dec) dec.innerHTML = `<div class="reco-decision-locked agree">You agreed with the recommendation. Next steps are shown below.</div>`;
   const ns = $("nextStepsWrapper"); if (ns) ns.classList.remove("hidden");
   const dis = $("disagreeCard"); if (dis) dis.classList.add("hidden");
 }
 
-function onRecoDisagree(){
-  if (!confirm("Please confirm: Do you DISAGREE with this recommendation?")) return;
+async function onRecoDisagree(){
+  const ok = await customConfirm("Do you DISAGREE with this recommendation?", { title: "Confirm decision", okLabel: "Yes, Disagree" });
+  if (!ok) return;
   // Open the notes modal. The decision is not locked until the Specialist
   // either pushes notes or cancels.
   const ta = $("disagreeNotes"); if (ta) ta.value = "";
