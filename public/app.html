@@ -1202,8 +1202,11 @@ function renderSteps(){
            <span class="step-evidence-text">"${escapeHtml(evidence)}"</span>
          </div>`
       : "";
+    // Copy Message stays available even after the EHR CTA is fired - the
+    // Specialist may want to save the message for the Draft Email AFTER
+    // updating the EHR. Only disabled on the disagree path (notes_pushed).
     const copyMsgBtn = isPatientCommStep(s)
-      ? `<button class="btn secondary small" title="Copy patient-facing message" onclick="onCopyStepMessage(${i})" ${locked ? "disabled" : ""}>Copy Message</button>`
+      ? `<button class="btn secondary small" title="Copy patient-facing message" onclick="onCopyStepMessage(${i})" ${st.notes_pushed ? "disabled" : ""}>Copy Message</button>`
       : "";
     return `
       <li class="${liClass}">
