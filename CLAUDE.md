@@ -150,20 +150,27 @@ Each SOP has a hand-written guardrail block in `evaluateRule` / `Invoke-LocalAna
 After ANY change to the heuristic, re-run all 3 sample transcripts and confirm the table above still holds.
 
 ### Claude prompt / response handling
-The system prompt in `lib/analyze-claude.js` (mirrored in `server.ps1`) is load-bearing in five ways:
+The system prompt in `lib/analyze-claude.js` (mirrored in `server.ps1`) is load-bearing in six ways:
 1. **Strict no-CRM/EHR grounding.** A top-of-prompt rule forbids any reference to CRM/EHR data, demographics, or facts not in the transcript. Phrasings like "per CRM" / "per EHR" / "based on the patient profile" are banned by name. The user message intentionally passes ONLY `case_type` — full CRM fields are NEVER fed to the LLM.
-2. **`applies_to` gating** — the prompt instructs Claude to skip rules whose `applies_to` doesn't include the patient's case_type.
-3. **Strict priority enforcement** — disposition priority is given as a numbered list with explicit instructions: "take the status of EVERY finding, look up its number, pick the LOWEST, copy verbatim." Without this, Claude tended to pick the *last-mentioned* status instead of the most-blocking one (e.g., Hold instead of Revision Case for Sarah).
-4. **`next_steps` ordering instruction** — Claude must write `next_steps` *last*, deriving each step from the already-written `patient_summary` and `recommendation`, sequenced in priority order, with the documentation step pinned to the end.
-5. **Robust JSON extraction** — the response parser locates the outermost `{...}` and parses that, instead of just stripping code fences. Claude sometimes wraps JSON in prose; the simpler approach broke with `Invalid JSON primitive: ..`. Don't simplify back to fence-stripping.
+2. **Patient Certainty Rule** — a finding fires ONLY when the patient's response provides direct, confirmed evidence. Patient hedges are explicitly listed as non-triggering: "maybe", "possibly", "I think", "I'm not sure", "I don't know", "I can't remember", "I don't recall", "I did some stuff", "something", "a while back", "a while ago", "at some point". The specialist asking the question is not the patient's confirmation. An empty findings array is the CORRECT output for ambiguous calls; producing a finding with hedged evidence is a routing error. Without this rule the analyzer over-fired on Daniel-style cases (patient unable to confirm anything, but Claude produced four findings with "Maybe?" as evidence). Positive triggers must look like clear past-tense affirmation, clear denial, or specific numbers ("I had a sleeve in 2018", "No, no one has ordered that yet", "My A1c was 7.6").
+3. **`applies_to` gating** — the prompt instructs Claude to skip rules whose `applies_to` doesn't include the patient's case_type.
+4. **Strict priority enforcement** — disposition priority is given as a numbered list with explicit instructions: "take the status of EVERY finding, look up its number, pick the LOWEST, copy verbatim." Without this, Claude tended to pick the *last-mentioned* status instead of the most-blocking one (e.g., Hold instead of Revision Case for Sarah).
+5. **`next_steps` ordering instruction** — Claude must write `next_steps` *last*, deriving each step from the already-written `patient_summary` and `recommendation`, sequenced in priority order, with the documentation step pinned to the end.
+6. **Robust JSON extraction** — the response parser locates the outermost `{...}` and parses that, instead of just stripping code fences. Claude sometimes wraps JSON in prose; the simpler approach broke with `Invalid JSON primitive: ..`. Don't simplify back to fence-stripping.
 
 ### Incomplete-transcript post-process (Next.js only)
-`pages/api/analyze.js` runs an `applyIncompleteTranscriptRule` pass after both engines resolve. It uses the extractor's `clinical_flags` to:
+`pages/api/analyze.js` runs `applyIncompleteTranscriptRule` after both engines resolve. The current design treats the analyzer's findings as **authoritative** — they come from direct transcript evidence with quotes. The extractor's flag state is informational, not subtractive. Behavior:
 
-1. **Per-rule unresolvable check** — for every SOP rule applicable to the patient's `case_type`, if any of the rule's `required_flags` has a null value in `extraction.clinical_flags`, the rule's id + finding + missing-flag list goes into `unresolvable[]`. Findings the analyzer already produced whose `sop_id` is in `unresolvable` are removed from `findings`.
-2. **Overall incompleteness override** — if `extraction_metadata.null_flag_count >= 3` OR `extraction_metadata.requires_human_review === true`, the analyzer's `overall_disposition` is overridden to `{ status: "Pending - Callback Required", reason: "Insufficient data to evaluate SOPs; follow-up needed." }` and `next_steps` is replaced with a dynamic questionnaire instruction listing the missing topics (built from `FLAG_TO_TOPIC`) plus the standard documentation step.
+1. **Analyzer findings pass through unchanged.** Even if the extractor was bashful and left a rule's `required_flags` as null, an analyzer finding for that same rule (e.g., "I had a sleeve in 2018" → BAR-001) stays. The Patient Certainty Rule in the analyze prompt is the safeguard against the analyzer producing hedged findings in the first place.
+2. **`unresolvable[]` is informational.** A rule lands there only when **both** paths agree there's no signal: the analyzer did NOT fire it, AND at least one of its `required_flags` is null in the extraction. Each entry: `{ id, finding, missing_flags }`. Rendered as the "Unresolvable Rules" card after Findings.
+3. **Pending - Callback Required override** fires only when `findings.length === 0` AND extraction is incomplete (`null_flag_count >= 3` OR `requires_human_review === true`). In that case `overall_disposition` becomes `{ status: "Pending - Callback Required", reason: "Insufficient data to evaluate SOPs; follow-up needed." }` and `next_steps` is replaced with a dynamic follow-up questionnaire built from `FLAG_TO_TOPIC` plus the documentation step. If the analyzer fired even one finding, that finding's status drives the disposition instead.
 
-The response shape gains a new top-level `unresolvable[]` field with `{ id, finding, missing_flags }`. The frontend renders an "Unresolvable Rules" card after Findings when this list is non-empty. Local-heuristic-only mode skips the post-process because there's no extraction. PowerShell mode lacks `/api/extract` so this pipeline change does not apply there.
+**History worth knowing** — this was first implemented as "strip any analyzer finding whose rule has a null required_flag, then override." That caused **under-firing**: even Sarah's solid `"I had a sleeve in 2018"` was thrown away because the extractor hadn't populated `prior_weight_loss_surgery`. The reverse failure mode (Daniel's `"Maybe?"` hedges producing four findings of Ineligible) was fixed by the Patient Certainty Rule in the analyze prompt, not by the post-process. Keep both safeguards together — softening either one regresses one of the two cases.
+
+Local-heuristic-only mode skips the post-process (no extraction object). PowerShell mode lacks `/api/extract` so the pipeline change does not apply there.
+
+### Defensive error envelope (`/api/analyze`)
+The whole handler is wrapped in a try/catch that converts any unhandled exception to a JSON 500 (`{ ok: false, error, where: "analyze handler" }`) instead of letting Vercel render its HTML error page (which would surface in the browser as the unhelpful `Unexpected token '<', <!DOCTYPE ... is not valid JSON`). A second try/catch wraps `applyIncompleteTranscriptRule` and falls back to the raw analyzer result on post-process failure. Both error paths log to the Vercel function log with `ANALYZE FATAL:` and `applyIncompleteTranscriptRule threw:` prefixes for quick diagnosis.
 
 ### Gemini evaluator (4-dimension QA scoring)
 `/api/evaluate` returns `{ ok, evaluator, model, evaluation }` where `evaluation` carries four named dimensions (0.0–1.0 floats):
@@ -246,9 +253,10 @@ CDN libraries are loaded once via `loadScriptOnce` and cached on `window.__scrip
 
 ### PowerShell 5.1 traps (these have all bitten in prior versions)
 1. **Source must be ASCII-only.** PS 5.1 reads UTF-8-without-BOM as Windows-1252 — em-dashes, smart quotes, etc., cause cryptic parse errors.
-2. **`$resp.OutputStream.Close()` in every code path** (success AND error). HttpListener leaks otherwise.
-3. **No ternary.** Use `if (cond) { val } else { other }`.
-4. **`ConvertFrom-Json` returns PSCustomObject**, not hashtable — use `.foo` not `["foo"]`.
+2. **`Set-Content -Encoding utf8` writes UTF-8-WITH-BOM in PS 5.1.** Doing this to `sops.json` or `crm.json` prepends a `U+FEFF` byte that crashes `JSON.parse` on Vercel with the misleading `Unexpected token '﻿', "﻿{ ... is not valid JSON`. Defenses in place: `readSops` / `readCrm` in `lib/data.js` strip a leading BOM before parsing. To write JSON from PS without BOM: `[System.IO.File]::WriteAllText($path, $text, (New-Object System.Text.UTF8Encoding $false))`. Or use the Edit/Write tools (no BOM). Or PS 7's `-Encoding utf8NoBOM`.
+3. **`$resp.OutputStream.Close()` in every code path** (success AND error). HttpListener leaks otherwise.
+4. **No ternary.** Use `if (cond) { val } else { other }`.
+5. **`ConvertFrom-Json` returns PSCustomObject**, not hashtable — use `.foo` not `["foo"]`.
 
 ### UTF-8 round-trip on the Anthropic path
 Three explicit UTF-8 boundaries in `server.ps1` (any one of them defaulting back to ANSI mangles non-ASCII transcripts):
