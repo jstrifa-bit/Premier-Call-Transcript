@@ -104,6 +104,8 @@ Both engines must produce this shape. Changing it requires touching `lib/analyze
 - **Anthropic Claude** drives `/api/preflight`, `/api/analyze` (analysis), and `/api/extract` (clinical flags). Analysis + extraction run in parallel via `Promise.allSettled` inside `/api/analyze`. Extraction failure is tolerated: the analyze response still succeeds with `extraction: null` + `extraction_error`.
 - **Google Gemini** drives `/api/evaluate`. The frontend fires it automatically after `renderResults` and passes `r.extraction` alongside the analysis output.
 
+**The extraction object is no longer rendered in the UI** — it survives only as Gemini-evaluator input. There is no Clinical Extraction card. If you re-introduce per-flag UI later, see git history around commit `a9136a2` for the previous render code.
+
 ## SOP schema (sops.json, v2.0)
 
 `sops.json` top-level keys: `version`, `last_updated`, `rules[]`, `status_priority`, `status_colors`. The analyzer reads `rules[]` (NOT `sops[]`) — older v1 code that referenced `(Get-Sops).sops` will silently produce no findings.
@@ -161,7 +163,9 @@ The system prompt in `lib/analyze-claude.js` (mirrored in `server.ps1`) is load-
 - **`next_step_actionability`** (20%) — are next steps specific, prioritized, SOP-tied?
 - **`human_review_appropriateness`** (10%) — is `requires_human_review` set correctly?
 
-Plus `overall_score` (weighted average), `score_label` (High / Medium / Low), `needs_escalation` (true when `sop_accuracy < 0.6` OR `extraction_completeness < 0.5`), `escalation_reason`, `evaluator_notes`. The frontend uses `sop_accuracy.score` for the Recommendation header pill and `next_step_actionability.score` for the Next Steps header pill (scaled ×100; color bands red 0-50 / yellow 51-75 / green 76-100). The full breakdown renders in the Evaluation card with a red **Escalation recommended** banner when `needs_escalation` is true.
+Plus `overall_score` (weighted average), `score_label` (High / Medium / Low), `needs_escalation` (true when `sop_accuracy < 0.6` OR `extraction_completeness < 0.5`), `escalation_reason`, `evaluator_notes`. The frontend uses `sop_accuracy.score` for the Recommendation header pill and `next_step_actionability.score` for the Next Steps header pill (scaled ×100; color bands red 0-50 / yellow 51-75 / green 76-100). The full breakdown renders in the Evaluation card — positioned **immediately after the Next Steps card** (which ends with the draft patient email), and before the Triggered SOP Findings card. A red **Escalation recommended** banner appears when `needs_escalation` is true.
+
+**Cost note:** the evaluator user message now embeds the entire extraction JSON plus the analyze output, so it's significantly larger than the original 2-pill prompt. If you hit 429s on Gemini, the Flash-Lite quota is the most common cause.
 
 **Gemini model trap:** the default `gemini-2.0-flash` has a free-tier limit of 0 on at least some accounts. We use `gemini-2.5-flash-lite` instead via `GEMINI_MODEL` in `.env` / Vercel env. Legacy `gemini-1.5-*` names are no longer served on `v1beta` for new keys. To enumerate what's available for a key: `https://generativelanguage.googleapis.com/v1beta/models?key=...`. Frontend silently degrades to "Confidence unavailable" pills on Gemini failure — check browser console for the underlying error.
 
@@ -189,7 +193,7 @@ After analysis renders, the Recommendation pane shows **Agree** / **Disagree** C
 - **Agree** (confirmed) → green badge "You agreed with the recommendation. Next steps are shown below." + the **Next Steps card is revealed** (it's hidden by default via `#nextStepsWrapper`).
 - **Disagree** (confirmed) → orange badge + an orange `#disagreeCard` appears: **"Recommendation declined — Please go back into the Patient profile in the EHR system to review the case."** Next Steps stays hidden.
 
-The Clinical Extraction and Evaluation cards render regardless of the Agree/Disagree decision (they're audit/QA info, not action surfaces).
+The Evaluation and Triggered SOP Findings cards render regardless of the Agree/Disagree decision (they're audit/QA info, not action surfaces).
 
 ### Per-step thumbs gating + Copy Message (Next Steps card)
 Each step row in `renderSteps` carries state in `STEP_STATE[i] = { vote, done }`:
@@ -257,7 +261,7 @@ The Anthropic catch block reads `$_.Exception.Response.GetResponseStream()` to s
 | `lib/extract.js` | Anthropic API call for structured flag extraction; reads `schemas/extraction-schema.json` at request time so schema edits go live without a redeploy. 50s timeout, `max_tokens: 4000`, safe-fallback on parse failure. |
 | `lib/preflight.js` | Anthropic API call for the upload gate — returns `is_clinical_transcript` + `detected_language`. Input capped at 4000 chars; 15s timeout. |
 | `lib/evaluate-gemini.js` | Gemini API call for the 4-dimension QA evaluator. Default model `gemini-2.5-flash-lite` (free-tier-0 traps on `gemini-2.0-flash` for new keys). 25s timeout. |
-| `public/app.html` | Single-page UI. CDN libraries (mammoth, pdf.js) lazy-loaded only for `.docx`/`.pdf` upload. Hosts all client-side edge-case handling, Agree/Disagree gate, per-step Copy Message, draft email. |
+| `public/app.html` | Single-page UI. CDN libraries (mammoth, pdf.js) lazy-loaded only for `.docx`/`.pdf` upload. Hosts all client-side edge-case handling, Agree/Disagree gate, per-step Copy Message, draft email. Analyzer view uses `container.full` (no side panel — the Engine Status side card was removed). |
 | `server.ps1` | PowerShell `HttpListener` backend — Windows local-only, parity with Next.js except missing `/api/preflight` and `/api/extract`. |
 | `sops.json` | v2.0 SOP library under `rules[]` (8 rules: 1 General, 4 Joint, 3 Bariatric). Editable from the UI in dev only. |
 | `crm.json` | Mock EHR (3 sample patients). Edit `name_aliases` to control which transcripts match. |
