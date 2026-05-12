@@ -119,7 +119,8 @@
 
   /* import strip */
   .import-strip { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-  .import-strip .btn { font-size: 13px; padding: 8px 12px; }
+  .import-strip .btn { font-size: 13px; padding: 8px 12px; display: inline-flex; align-items: center; gap: 6px; }
+  .brand-icon { width: 16px; height: 16px; flex-shrink: 0; }
 
   /* status colors */
   .status { padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; display: inline-block; }
@@ -347,8 +348,14 @@
         <div class="import-strip">
           <input type="file" id="fileInput" accept=".txt,.md,.log,.html,.htm,.json,.csv,.xml,.srt,.vtt,.docx,.pdf" style="display:none" onchange="onFileChosen(event)" />
           <button class="btn secondary small" onclick="document.getElementById('fileInput').click()">Upload file</button>
-          <button class="btn secondary small" onclick="onImportSample('googleworkspace')">Import from Google Workspace</button>
-          <button class="btn secondary small" onclick="onImportSample('five9')">Import from Five9</button>
+          <button class="btn secondary small" onclick="onImportSample('googleworkspace')">
+            <svg class="brand-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/><path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/><path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 35.091 26.715 36 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/><path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/></svg>
+            Import from Google Workspace
+          </button>
+          <button class="btn secondary small" onclick="onImportSample('five9')">
+            <svg class="brand-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#00B5E2"/><text x="12" y="16.5" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="13" fill="white">5</text></svg>
+            Import from Five9
+          </button>
           <span class="top-spacer"></span>
           <button class="btn small" id="analyzeBtn" onclick="onAnalyze()">Analyze</button>
         </div>
@@ -374,6 +381,26 @@
   </div>
 
   <div class="footer-note">Premier Care Specialist Console - demo environment.</div>
+</div>
+
+<!-- ---------- Step thumbs-down notes modal ---------- -->
+<div class="modal-bg" id="stepDownModal">
+  <div class="modal">
+    <h2>Flag step for follow-up</h2>
+    <p class="muted" style="margin-top:0; font-size:13px;">You've flagged this step for manual follow-up. Capture your notes, then push them to the patient's EHR profile.</p>
+    <div class="field">
+      <label>Step</label>
+      <div id="stepDownStepText" class="muted" style="font-size:13px; padding:8px 10px; background:var(--surface-2); border:1px solid var(--border); border-radius:6px;"></div>
+    </div>
+    <div class="field">
+      <label for="stepDownNotes">Notes</label>
+      <textarea id="stepDownNotes" style="min-height:140px;" placeholder="Why are you flagging this step? Any follow-up needed..."></textarea>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" onclick="onStepDownCancel()">Cancel</button>
+      <button class="btn" onclick="onStepDownPush()">Push to Patient Profile</button>
+    </div>
+  </div>
 </div>
 
 <!-- ---------- Disagree notes modal ---------- -->
@@ -432,6 +459,7 @@ let LAST_RESULT = null;
 let EDITING_SOP_ID = null;
 let STEP_STATE = []; // [{ vote: null|'up'|'down', done: false }]
 let COPIED_STEP_MESSAGES = []; // [{stepIndex, sopId, stepText, message}] - captured per analysis
+let ACTIVE_STEP_DOWN_INDEX = -1; // which step is the open step-down modal annotating
 const SESSION_TRANSCRIPT_HASHES = new Set();
 
 // Allowed upload extensions - must match the `accept` attribute on #fileInput.
@@ -1153,17 +1181,20 @@ function renderSteps(){
   const list = $("stepsList"); if (!list) return;
   const steps = (LAST_RESULT && LAST_RESULT.next_steps) || [];
   list.innerHTML = steps.map((s, i) => {
-    const st = STEP_STATE[i] || { vote: null, done: false };
+    const st = STEP_STATE[i] || { vote: null, done: false, notes_pushed: false };
     const cta = inferStepCta(s);
+    const locked = st.done || st.notes_pushed;
     const liClass = st.done ? "done" : (st.vote === "down" ? "flagged" : "");
     const upActive = st.vote === "up" ? "active up" : "";
     const downActive = st.vote === "down" ? "active down" : "";
-    const ctaDisabled = !(st.vote === "up") || st.done;
+    const ctaDisabled = !(st.vote === "up") || locked;
     const ctaLabel = st.done ? "Completed" : cta.label;
     const ctaClass = st.done ? "step-cta done" : "step-cta";
     const statusBadge = st.done
       ? `<span class="step-status done">Completed</span>`
-      : (st.vote === "down" ? `<span class="step-status flagged">Follow-up flagged</span>` : "");
+      : (st.notes_pushed
+          ? `<span class="step-status flagged">Notes pushed</span>`
+          : (st.vote === "down" ? `<span class="step-status flagged">Follow-up flagged</span>` : ""));
     const evidence = findEvidenceForStep(s);
     const evidenceBlock = evidence
       ? `<div class="step-evidence" style="grid-column:2;">
@@ -1172,7 +1203,7 @@ function renderSteps(){
          </div>`
       : "";
     const copyMsgBtn = isPatientCommStep(s)
-      ? `<button class="btn secondary small" title="Copy patient-facing message" onclick="onCopyStepMessage(${i})">Copy Message</button>`
+      ? `<button class="btn secondary small" title="Copy patient-facing message" onclick="onCopyStepMessage(${i})" ${locked ? "disabled" : ""}>Copy Message</button>`
       : "";
     return `
       <li class="${liClass}">
@@ -1180,8 +1211,8 @@ function renderSteps(){
         <div class="step-text">${formatStep(s)}</div>
         ${evidenceBlock}
         <div class="step-controls">
-          <button class="thumb-btn ${upActive}" title="Approve" onclick="onStepVote(${i},'up')" ${st.done ? "disabled" : ""}>👍</button>
-          <button class="thumb-btn ${downActive}" title="Flag for follow-up" onclick="onStepVote(${i},'down')" ${st.done ? "disabled" : ""}>👎</button>
+          <button class="thumb-btn ${upActive}" title="Approve" onclick="onStepVote(${i},'up')" ${locked ? "disabled" : ""}>👍</button>
+          <button class="thumb-btn ${downActive}" title="Flag for follow-up" onclick="onStepVote(${i},'down')" ${locked ? "disabled" : ""}>👎</button>
           <button class="${ctaClass}" onclick="onStepCta(${i})" ${ctaDisabled ? "disabled" : ""}>${escapeHtml(ctaLabel)}</button>
           ${copyMsgBtn}
           ${statusBadge}
@@ -1239,9 +1270,54 @@ async function onDraftEmail(){
 }
 
 function onStepVote(i, vote){
-  if (!STEP_STATE[i] || STEP_STATE[i].done) return;
+  if (!STEP_STATE[i] || STEP_STATE[i].done || STEP_STATE[i].notes_pushed) return;
+  if (vote === "down") {
+    // Open the step-down notes modal. Don't commit the vote until Push.
+    ACTIVE_STEP_DOWN_INDEX = i;
+    const stepText = (LAST_RESULT && LAST_RESULT.next_steps && LAST_RESULT.next_steps[i]) || "";
+    $("stepDownStepText").textContent = stepText;
+    $("stepDownNotes").value = "";
+    $("stepDownModal").classList.add("show");
+    return;
+  }
   STEP_STATE[i].vote = STEP_STATE[i].vote === vote ? null : vote;
-  if (vote === "down") toast("Step "+(i+1)+" flagged for manual follow-up.");
+  renderSteps();
+}
+
+function onStepDownCancel(){
+  $("stepDownModal").classList.remove("show");
+  ACTIVE_STEP_DOWN_INDEX = -1;
+}
+
+async function onStepDownPush(){
+  const i = ACTIVE_STEP_DOWN_INDEX;
+  if (i < 0 || !STEP_STATE[i]) return;
+  const notes = $("stepDownNotes").value.trim();
+  if (!notes) { toast("Please add notes before pushing to the patient profile."); return; }
+  const stepText = (LAST_RESULT && LAST_RESULT.next_steps && LAST_RESULT.next_steps[i]) || "";
+  try {
+    const r = await api("/api/integrations/export", {
+      method: "POST",
+      body: JSON.stringify({
+        target: "ehr",
+        kind: "step_disagree_notes",
+        step_index: i,
+        step_text: stepText,
+        notes,
+        payload: LAST_RESULT
+      })
+    });
+    if (r.ok) toast("Step notes pushed - ref " + r.reference);
+    else { toast("Push failed: " + (r.error || "unknown")); return; }
+  } catch (e) {
+    toast("Push failed: " + e.message); return;
+  }
+  // Commit the flagged state + remove from Draft Email collection.
+  STEP_STATE[i].vote = "down";
+  STEP_STATE[i].notes_pushed = true;
+  COPIED_STEP_MESSAGES = COPIED_STEP_MESSAGES.filter(c => c.stepIndex !== i);
+  $("stepDownModal").classList.remove("show");
+  ACTIVE_STEP_DOWN_INDEX = -1;
   renderSteps();
 }
 
