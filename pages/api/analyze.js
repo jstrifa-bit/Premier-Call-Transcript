@@ -90,50 +90,74 @@ function applyIncompleteTranscriptRule({ extraction, result, crm }) {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") { res.status(405).end(); return; }
-  const started = Date.now();
-  const { transcript, patient_name, patient_id } = req.body || {};
-  if (!transcript) { res.status(400).json({ ok: false, error: "transcript required" }); return; }
+  // Outermost try/catch so any unhandled error returns a JSON envelope
+  // instead of letting Vercel render its HTML error page. The browser's
+  // response.json() then surfaces the real error rather than the
+  // unhelpful "Unexpected token '<'" parse failure.
+  try {
+    if (req.method !== "POST") { res.status(405).end(); return; }
+    const started = Date.now();
+    const { transcript, patient_name, patient_id } = req.body || {};
+    if (!transcript) { res.status(400).json({ ok: false, error: "transcript required" }); return; }
 
-  let crm = findCrmByQuery({ name: patient_name, patient_id });
-  if (!crm) crm = findCrmFromTranscript(transcript);
+    let crm = findCrmByQuery({ name: patient_name, patient_id });
+    if (!crm) crm = findCrmFromTranscript(transcript);
 
-  const hasClaude = !!process.env.ANTHROPIC_API_KEY;
-  const analysisPromise = hasClaude
-    ? invokeClaudeAnalysis(transcript, crm).catch(e => ({ __error: e.message }))
-    : Promise.resolve(invokeLocalAnalysis(transcript, crm));
-  const extractionPromise = hasClaude
-    ? invokeExtraction(transcript, crm).catch(e => ({ __error: e.message }))
-    : Promise.resolve({ __error: "extraction requires ANTHROPIC_API_KEY" });
+    const hasClaude = !!process.env.ANTHROPIC_API_KEY;
+    const analysisPromise = hasClaude
+      ? invokeClaudeAnalysis(transcript, crm).catch(e => ({ __error: e.message }))
+      : Promise.resolve(invokeLocalAnalysis(transcript, crm));
+    const extractionPromise = hasClaude
+      ? invokeExtraction(transcript, crm).catch(e => ({ __error: e.message }))
+      : Promise.resolve({ __error: "extraction requires ANTHROPIC_API_KEY" });
 
-  const [analysisRaw, extractionRaw] = await Promise.all([analysisPromise, extractionPromise]);
+    const [analysisRaw, extractionRaw] = await Promise.all([analysisPromise, extractionPromise]);
 
-  let result, claude_error = null;
-  if (analysisRaw.__error) {
-    claude_error = analysisRaw.__error;
-    result = invokeLocalAnalysis(transcript, crm);
-  } else {
-    result = analysisRaw;
+    let result, claude_error = null;
+    if (analysisRaw.__error) {
+      claude_error = analysisRaw.__error;
+      result = invokeLocalAnalysis(transcript, crm);
+    } else {
+      result = analysisRaw;
+    }
+
+    const extraction = extractionRaw.__error ? null : extractionRaw;
+
+    // Defensive: if the post-process throws (bad extraction shape, sops.json
+    // unreachable, etc.) fall back to the raw result so the analyze response
+    // still succeeds without unresolvable[] / pending status.
+    let post;
+    try {
+      post = applyIncompleteTranscriptRule({ extraction, result, crm });
+    } catch (e) {
+      console.warn("applyIncompleteTranscriptRule threw:", e.message, e.stack);
+      post = {
+        findings: result.findings,
+        next_steps: result.next_steps,
+        overall_disposition: result.overall_disposition,
+        unresolvable: []
+      };
+    }
+
+    const out = {
+      ok: true,
+      engine: result.engine,
+      model: result.model,
+      crm_record: crm,
+      patient_summary: result.patient_summary,
+      recommendation: result.recommendation,
+      findings: post.findings,
+      overall_disposition: post.overall_disposition,
+      next_steps: post.next_steps,
+      unresolvable: post.unresolvable,
+      extraction,
+      elapsed_ms: Date.now() - started
+    };
+    if (claude_error) out.claude_error = claude_error;
+    if (extractionRaw.__error) out.extraction_error = extractionRaw.__error;
+    res.status(200).json(out);
+  } catch (fatal) {
+    console.error("ANALYZE FATAL:", fatal.message, fatal.stack);
+    res.status(500).json({ ok: false, error: fatal.message, where: "analyze handler" });
   }
-
-  const extraction = extractionRaw.__error ? null : extractionRaw;
-  const post = applyIncompleteTranscriptRule({ extraction, result, crm });
-
-  const out = {
-    ok: true,
-    engine: result.engine,
-    model: result.model,
-    crm_record: crm,
-    patient_summary: result.patient_summary,
-    recommendation: result.recommendation,
-    findings: post.findings,
-    overall_disposition: post.overall_disposition,
-    next_steps: post.next_steps,
-    unresolvable: post.unresolvable,
-    extraction,
-    elapsed_ms: Date.now() - started
-  };
-  if (claude_error) out.claude_error = claude_error;
-  if (extractionRaw.__error) out.extraction_error = extractionRaw.__error;
-  res.status(200).json(out);
 }
