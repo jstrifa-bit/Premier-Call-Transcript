@@ -2,7 +2,7 @@
 .env
 .env.*
 !.env.example
-ANTHROPIC_API_KEY=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
+ANTHROPIC_API_KEY=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
 GEMINI_API_KEY=AIzaSyDSISIGPgzSpEzQx822odLmXdZiyA8j78w
 # Environment variables
 .env
