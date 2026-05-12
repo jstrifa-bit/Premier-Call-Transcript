@@ -60,9 +60,10 @@ Claude mode may produce extra defensible findings; dispositions above must still
     │ Analyze     ─▶ POST /api/analyze                (analysis + extraction in parallel)
     │ Extract     ─▶ POST /api/extract                (standalone Claude, Next.js only)
     │ Evaluate    ─▶ POST /api/evaluate               (Gemini 4-dimension scoring, fires after renderResults)
+    │ Draft Email ─▶ POST /api/draft-email            (Claude, builds patient email from COPIED_STEP_MESSAGES)
     │ SOP CRUD    ─▶ /api/sops[/{id}]
     │ Import      ─▶ POST /api/integrations/import    (googleworkspace / five9 canned transcripts)
-    │ Export      ─▶ POST /api/integrations/export    (per-step CTA, mock)
+    │ Export      ─▶ POST /api/integrations/export    (per-step CTA + disagree_notes + step_disagree_notes, mock)
     ▼
  ┌────────────────────────────────────┬──────────────────────────────────┐
  │ Next.js (pages/api/*.js)           │ server.ps1 (PowerShell)          │
@@ -100,8 +101,8 @@ Both engines must produce this shape. Changing it requires touching `lib/analyze
 - `findings[].evidence` is rendered inline as the "Patient quote:" snippet next to the matching `[SOP-ID]` step in Next Steps, NOT in the Findings card.
 - `next_steps[]` is a flat string array (`[SOP-ID] action` plus a disposition tail step and a documentation step). Note: the unified case-document schema in `schemas/extraction-schema.json` defines a richer **structured** next_steps array; that's the extractor's output, not the analyze pipeline's.
 
-### Three LLM engines
-- **Anthropic Claude** drives `/api/preflight`, `/api/analyze` (analysis), and `/api/extract` (clinical flags). Analysis + extraction run in parallel via `Promise.allSettled` inside `/api/analyze`. Extraction failure is tolerated: the analyze response still succeeds with `extraction: null` + `extraction_error`.
+### Four LLM endpoints
+- **Anthropic Claude** drives `/api/preflight` (upload gate), `/api/analyze` (analysis), `/api/extract` (clinical flags), and `/api/draft-email` (patient email). Analysis + extraction run in parallel via `Promise.allSettled` inside `/api/analyze`. Extraction failure is tolerated: the analyze response still succeeds with `extraction: null` + `extraction_error`.
 - **Google Gemini** drives `/api/evaluate`. The frontend fires it automatically after `renderResults` and passes `r.extraction` alongside the analysis output.
 
 **The extraction object is no longer rendered in the UI** — it survives only as Gemini-evaluator input. There is no Clinical Extraction card. If you re-introduce per-flag UI later, see git history around commit `a9136a2` for the previous render code.
@@ -189,34 +190,39 @@ Returns 503 when `ANTHROPIC_API_KEY` is missing; the frontend treats 503 as skip
 `onAnalyze` enforces that if an EHR record is loaded (`CURRENT_CRM != null`), the transcript must mention at least one of `CURRENT_CRM.name_aliases` (or the full `name`). On mismatch it shows a blocking `alert()` and calls `onLookupReset()` to clear name, ID, transcript, and prior results. If lookup was skipped (no CRM loaded), the analyzer runs against the transcript alone — `findCrmFromTranscript` may still backfill a record by alias scan server-side.
 
 ### HITL Agree/Disagree gate on Recommendation
-After analysis renders, the Recommendation pane shows **Agree** / **Disagree** CTAs. Each click prompts `confirm()` before locking the decision.
-- **Agree** (confirmed) → green badge "You agreed with the recommendation. Next steps are shown below." + the **Next Steps card is revealed** (it's hidden by default via `#nextStepsWrapper`).
-- **Disagree** (confirmed) → orange badge + an orange `#disagreeCard` appears: **"Recommendation declined — Please go back into the Patient profile in the EHR system to review the case."** Next Steps stays hidden.
+After analysis renders, the Recommendation pane shows **Agree** / **Disagree** CTAs. Each click prompts `confirm()` before proceeding.
+- **Agree** (confirmed) → green badge + the **Next Steps card is revealed** (hidden by default via `#nextStepsWrapper`).
+- **Disagree** (confirmed) → opens `#disagreeModal`, a notes modal with a free-form textarea and two CTAs:
+  - **Cancel** → closes the modal and resets the recoDecision UI so the Specialist can choose again. The decision is never committed.
+  - **Push Notes to Patient Profile** → posts to `/api/integrations/export` with `kind: disagree_notes`, locks the recoDecision with "Notes pushed to the patient profile. Please return to the EHR system to review the case.", and shows the orange `#disagreeCard` banner. Empty notes are rejected with a toast.
 
 The Evaluation and Triggered SOP Findings cards render regardless of the Agree/Disagree decision (they're audit/QA info, not action surfaces).
 
 ### Per-step thumbs gating + Copy Message (Next Steps card)
-Each step row in `renderSteps` carries state in `STEP_STATE[i] = { vote, done }`:
-- The recommended EHR CTA is `disabled` until 👍 (then `vote === "up"` enables it). 👎 sets `vote === "down"` and flags the row as "Follow-up flagged" but keeps the CTA disabled.
-- Toggling the same thumb clears the vote.
+Each step row in `renderSteps` carries state in `STEP_STATE[i] = { vote, done, notes_pushed }`. A row is `locked` when `done || notes_pushed`:
+- The recommended EHR CTA is `disabled` until 👍 (then `vote === "up"` enables it). Clicking 👍 again toggles back to undecided.
+- 👎 **opens `#stepDownModal`**, a notes modal scoped to that step. It shows the step text (read-only), a free-form notes textarea, and two CTAs:
+  - **Cancel** → closes the modal; the 👎 vote is never committed (row returns to undecided).
+  - **Push to Patient Profile** → posts to `/api/integrations/export` with `kind: step_disagree_notes` and `step_index` / `step_text` / `notes`. On success: commits `vote = "down"` + `notes_pushed = true`, removes this step from `COPIED_STEP_MESSAGES` (so it's excluded from Draft Email), and locks the row with a red **"Notes pushed"** badge.
+- After a successful `/api/integrations/export` on the EHR CTA, the row is marked `done` and locked with a green **"Completed"** badge.
 - The CTA target/kind is inferred from the step text by `inferStepCta` (keyword match on "document", "notify", "schedule", "escalate", "request", "revision pathway", "close case"). All CTAs target "EHR" labels. If you add new disposition-tail wording, update `inferStepCta`.
-- After a successful `/api/integrations/export`, the row is marked `done`, locked, and turns green.
 
-**Copy Message button** appears alongside the EHR CTA on **patient-communication steps** — `PATIENT_COMM_SOPS = {GEN-001, JNT-001, JNT-002, BAR-002, BAR-003}` plus a keyword fallback (`notify|refer|instruct|cessation|...`). Internal-only SOPs (`JNT-003`, `JNT-004`, `BAR-001`) and the documentation tail step do NOT get the button. Clicking it copies a per-step patient-facing message (templates in `PATIENT_MESSAGES_BY_SOP`) to the clipboard via `navigator.clipboard.writeText`.
+**Copy Message button** appears alongside the EHR CTA on **patient-communication steps** — `PATIENT_COMM_SOPS = {GEN-001, JNT-001, JNT-002, BAR-002, BAR-003}` plus a keyword fallback (`notify|refer|instruct|cessation|...`). Internal-only SOPs (`JNT-003`, `JNT-004`, `BAR-001`) and the documentation tail step do NOT get the button. Clicking it copies a per-step patient-facing message (templates in `PATIENT_MESSAGES_BY_SOP`) to the clipboard via `navigator.clipboard.writeText` AND pushes onto `COPIED_STEP_MESSAGES` (deduped by `stepIndex`) for the Draft Email aggregator. **Copy Message stays enabled on `done` rows** — only `notes_pushed` rows disable it — so the Specialist can: approve → Update EHR → Copy Message → next step.
 
-### Draft patient email (bottom of Next Steps)
-`buildDraftEmail()` produces an editable textarea pre-filled with:
-- Subject line, greeting using the EHR patient first name.
-- Disposition-specific blurb (Ineligible / Deferred / Hold / Action Required / High Complexity / Review / Revision Case).
-- Bulleted patient-friendly messages drawn from the same `PATIENT_MESSAGES_BY_SOP` templates, one per comm step.
-- Signature using the signed-in Specialist's name + "Care Specialist, Premier Health".
+### Draft patient email (Claude-drafted, bottom of Next Steps)
+The auto-generated email template was replaced with a Claude-drafted flow:
+1. As the Specialist clicks Copy Message on comm steps, entries accumulate in `COPIED_STEP_MESSAGES` (`{stepIndex, sopId, stepText, message}`). The "Draft Email (N steps)" CTA at the bottom of the Next Steps card stays disabled until at least one message has been copied. The count updates live via `renderDraftEmailControls`.
+2. Clicking **Draft Email** posts to `POST /api/draft-email` ([lib/draft-email.js](lib/draft-email.js)) with `{ patient_name, case_type, disposition, copied_messages[], specialist_name }`. Claude returns STRICT JSON `{ subject, body }`. 30s `AbortController` timeout; `max_tokens: 1000`. Vercel `maxDuration: 35`.
+3. The frontend assembles `Subject: ...\n\n<body>` into an editable textarea + a **Copy Email** button. The Specialist can edit before copying.
 
-The Specialist can edit before copying. **Copy Email** copies whatever's currently in the textarea (not the original draft). Both copy actions use `navigator.clipboard.writeText`, which requires HTTPS or `localhost` — works on Vercel and `npm run dev`. The whole email block lives inside the gated Next Steps card, so it only appears after the Specialist clicks **Agree**.
+`COPIED_STEP_MESSAGES` resets in `renderResults` for each new analysis, so the email always reflects the *current* case. `onCopyEmail` reads the textarea (not the original draft) so edits survive the copy.
+
+Both copy actions use `navigator.clipboard.writeText`, which requires HTTPS or `localhost` (works on Vercel and `npm run dev`). The whole Next Steps card — including the Draft Email block — is gated by the recommendation Agree/Disagree decision and only appears after the Specialist clicks Agree.
 
 ### Mock SSO / Integrations
 - `/api/sso/signin` returns a hardcoded `Jordan G / Care Specialist` user.
-- `/api/integrations/import` source values: `googleworkspace` (bariatric Sarah sample), `five9` (joint/opioid Bob sample), default (Maria smoker sample).
-- `/api/integrations/export` returns a fake `EXP-######` reference. Called per-step with `step_index` + `step_text` in the body.
+- `/api/integrations/import` source values: `googleworkspace` (bariatric Sarah sample), `five9` (joint/opioid Bob sample), default (Maria smoker sample). The two import buttons render brand emblems via inline SVG (`.brand-icon` — Google multicolor "G", Five9 teal "5" lettermark).
+- `/api/integrations/export` returns a fake `EXP-######` reference. Called from multiple places with different `kind` values: per-step EHR CTAs (no `kind`, just `step_index`/`step_text`), step thumbs-down (`kind: step_disagree_notes`), recommendation Disagree (`kind: disagree_notes`). All carry the original `LAST_RESULT` as payload.
 - **Don't let "make these real" silently turn into real integrations.** They are deliberately stubs — anything wiring them to real Salesforce/Google Workspace/Five9/Outlook must be explicitly scoped.
 
 ### File upload (frontend, browser-side)
@@ -252,14 +258,15 @@ The Anthropic catch block reads `$_.Exception.Response.GetResponseStream()` to s
 
 | File / dir | Purpose |
 |------------|---------|
-| `package.json`, `next.config.js`, `vercel.json` | Next.js + Vercel configuration. `/` rewrites to `/app.html`. `vercel.json` declares per-route `maxDuration` (analyze/extract 60s, evaluate 30s, preflight 20s). |
-| `pages/api/*.js` | Serverless route handlers — health, sso/signin, crm/lookup, sops (GET/POST), sops/[id] (PUT/DELETE), integrations/import, integrations/export, analyze, extract, evaluate, preflight. Pages router (not App router) for simpler `req.body` handling. |
+| `package.json`, `next.config.js`, `vercel.json` | Next.js + Vercel configuration. `/` rewrites to `/app.html`. `vercel.json` declares per-route `maxDuration` (analyze/extract 60s, draft-email 35s, evaluate 30s, preflight 20s). |
+| `pages/api/*.js` | Serverless route handlers — health, sso/signin, crm/lookup, sops (GET/POST), sops/[id] (PUT/DELETE), integrations/import, integrations/export, analyze, extract, evaluate, preflight, draft-email. Pages router (not App router) for simpler `req.body` handling. |
 | `lib/data.js` | Reads `sops.json`/`crm.json`. `writeSops` throws `READONLY` when `process.env.VERCEL` is set. CRM lookup helpers (by query and from-transcript). |
 | `lib/disposition.js` | `STATUS_PRIORITY` map and `getOverallDisposition`. Mirrored in `server.ps1` and the Claude prompts — keep all in sync. |
 | `lib/analyze-local.js` | Faithful JS port of `Invoke-LocalAnalysis`, including per-SOP regex guardrails and the no-CRM-data summary builder. |
 | `lib/analyze-claude.js` | Anthropic API call with the strict-no-CRM + priority + JSON-extraction prompt. 50s timeout. |
 | `lib/extract.js` | Anthropic API call for structured flag extraction; reads `schemas/extraction-schema.json` at request time so schema edits go live without a redeploy. 50s timeout, `max_tokens: 4000`, safe-fallback on parse failure. |
 | `lib/preflight.js` | Anthropic API call for the upload gate — returns `is_clinical_transcript` + `detected_language`. Input capped at 4000 chars; 15s timeout. |
+| `lib/draft-email.js` | Anthropic API call that drafts the patient email from `COPIED_STEP_MESSAGES`. Returns STRICT JSON `{ subject, body }`. 30s timeout, `max_tokens: 1000`. |
 | `lib/evaluate-gemini.js` | Gemini API call for the 4-dimension QA evaluator. Default model `gemini-2.5-flash-lite` (free-tier-0 traps on `gemini-2.0-flash` for new keys). 25s timeout. |
 | `public/app.html` | Single-page UI. CDN libraries (mammoth, pdf.js) lazy-loaded only for `.docx`/`.pdf` upload. Hosts all client-side edge-case handling, Agree/Disagree gate, per-step Copy Message, draft email. Analyzer view uses `container.full` (no side panel — the Engine Status side card was removed). |
 | `server.ps1` | PowerShell `HttpListener` backend — Windows local-only, parity with Next.js except missing `/api/preflight` and `/api/extract`. |
