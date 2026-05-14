@@ -973,7 +973,11 @@ async function runEvaluation(r){
         extraction: r.extraction
       })
     });
-    if (!resp.ok) throw new Error(resp.error || "evaluation failed");
+    if (!resp.ok) {
+      // Coerce non-string error fields so they don't render as [object Object].
+      const errStr = typeof resp.error === "string" ? resp.error : (resp.error ? JSON.stringify(resp.error) : "evaluation failed");
+      throw new Error(errStr);
+    }
     const ev = resp.evaluation || {};
     const sop = ev.sop_accuracy || {};
     const act = ev.next_step_actionability || {};
@@ -981,12 +985,13 @@ async function runEvaluation(r){
     paintConfidence("stepsConfidence", "stepsRationale", "Actionability", scoreToPercent(act.score), act.reason);
     renderEvaluation(ev, resp.model);
   } catch (e) {
-    console.warn("Evaluation failed:", e.message);
-    const reco = $("recoConfidence"); if (reco) reco.outerHTML = `<span id="recoConfidence" class="confidence loading" title="${escapeHtml(e.message)}"><span class="confidence-label">Confidence</span><span>unavailable</span></span>`;
-    const stp  = $("stepsConfidence"); if (stp) stp.outerHTML = `<span id="stepsConfidence" class="confidence loading" title="${escapeHtml(e.message)}"><span class="confidence-label">Confidence</span><span>unavailable</span></span>`;
-    if ($("recoRationale")) $("recoRationale").textContent = "Evaluation unavailable: " + e.message;
+    const msg = (typeof e?.message === "string" && e.message) ? e.message : String(e || "unknown error");
+    console.warn("Evaluation failed:", msg);
+    const reco = $("recoConfidence"); if (reco) reco.outerHTML = `<span id="recoConfidence" class="confidence loading" title="${escapeHtml(msg)}"><span class="confidence-label">Confidence</span><span>unavailable</span></span>`;
+    const stp  = $("stepsConfidence"); if (stp) stp.outerHTML = `<span id="stepsConfidence" class="confidence loading" title="${escapeHtml(msg)}"><span class="confidence-label">Confidence</span><span>unavailable</span></span>`;
+    if ($("recoRationale")) $("recoRationale").textContent = "Evaluation unavailable: " + msg;
     if ($("stepsRationale")) $("stepsRationale").textContent = "";
-    const evCard = $("evaluationCard"); if (evCard) evCard.innerHTML = `<h2>Evaluation</h2><div class="muted" style="font-size:13px;">Evaluation unavailable: ${escapeHtml(e.message)}</div>`;
+    const evCard = $("evaluationCard"); if (evCard) evCard.innerHTML = `<h2>Evaluation</h2><div class="muted" style="font-size:13px;">Evaluation unavailable: ${escapeHtml(msg)}</div>`;
   }
 }
 

@@ -17,6 +17,11 @@ export default async function handler(req, res) {
       evaluation: result.evaluation
     });
   } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
+    // Coerce to string defensively - some thrown values (notably from
+    // fetch/JSON-parse failures) can carry non-string messages, which would
+    // otherwise render as "[object Object]" on the frontend.
+    const msg = typeof e?.message === "string" ? e.message : String(e?.message ?? e ?? "unknown error");
+    console.error("EVALUATE FATAL:", msg, e?.stack);
+    res.status(500).json({ ok: false, error: msg });
   }
 }
