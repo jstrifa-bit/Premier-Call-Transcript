@@ -1,6 +1,7 @@
 import { invokeGeminiEvaluation } from "../../lib/evaluate-gemini.js";
 import { scoreSopAccuracy } from "../../lib/score-sop-accuracy.js";
 import { scoreExtractionCompleteness } from "../../lib/score-extraction-completeness.js";
+import { scoreHumanReview } from "../../lib/score-human-review.js";
 import { readSops } from "../../lib/data.js";
 
 export const config = { api: { bodyParser: { sizeLimit: "2mb" } } };
@@ -47,6 +48,20 @@ export default async function handler(req, res) {
       evaluation.extraction_completeness = deterministicEc;
     } catch (ecErr) {
       console.warn("Deterministic extraction_completeness override failed:", ecErr.message);
+    }
+
+    // Deterministic human_review_appropriateness — Gemini repeatedly
+    // downgraded this dimension on review_reason prose quality even
+    // when the boolean flag was correctly set. Judge the flag, not
+    // the prose.
+    try {
+      const deterministicHr = scoreHumanReview({
+        extraction: body.extraction,
+        findings: body.findings
+      });
+      evaluation.human_review_appropriateness = deterministicHr;
+    } catch (hrErr) {
+      console.warn("Deterministic human_review override failed:", hrErr.message);
     }
 
     // Recompute overall_score and escalation using whatever values are now in evaluation.
