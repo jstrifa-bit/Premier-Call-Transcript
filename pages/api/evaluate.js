@@ -2,6 +2,7 @@ import { invokeGeminiEvaluation } from "../../lib/evaluate-gemini.js";
 import { scoreSopAccuracy } from "../../lib/score-sop-accuracy.js";
 import { scoreExtractionCompleteness } from "../../lib/score-extraction-completeness.js";
 import { scoreHumanReview } from "../../lib/score-human-review.js";
+import { scoreNextStepActionability } from "../../lib/score-next-step-actionability.js";
 import { readSops } from "../../lib/data.js";
 
 export const config = { api: { bodyParser: { sizeLimit: "2mb" } } };
@@ -62,6 +63,20 @@ export default async function handler(req, res) {
       evaluation.human_review_appropriateness = deterministicHr;
     } catch (hrErr) {
       console.warn("Deterministic human_review override failed:", hrErr.message);
+    }
+
+    // Deterministic next_step_actionability — scores against the
+    // structural contract from the analyze prompt ([SOP-ID] per finding,
+    // disposition tail, documentation step at end) rather than Gemini's
+    // prose impression of "specificity."
+    try {
+      const deterministicNs = scoreNextStepActionability({
+        findings: body.findings,
+        next_steps: body.next_steps
+      });
+      evaluation.next_step_actionability = deterministicNs;
+    } catch (nsErr) {
+      console.warn("Deterministic next_step_actionability override failed:", nsErr.message);
     }
 
     // Recompute overall_score and escalation using whatever values are now in evaluation.
