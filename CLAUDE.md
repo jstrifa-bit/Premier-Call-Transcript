@@ -180,11 +180,11 @@ The whole handler is wrapped in a try/catch that converts any unhandled exceptio
 ### Gemini evaluator (4-dimension QA scoring)
 `/api/evaluate` returns `{ ok, evaluator, model, evaluation }` where `evaluation` carries four named dimensions (0.0–1.0 floats):
 - **`sop_accuracy`** (40% weight) — **DETERMINISTIC, server-side.** Computed by `lib/score-sop-accuracy.js`, NOT Gemini.
-- **`extraction_completeness`** (30%) — Gemini.
+- **`extraction_completeness`** (30%) — **DETERMINISTIC, server-side.** Computed by `lib/score-extraction-completeness.js`, NOT Gemini.
 - **`next_step_actionability`** (20%) — Gemini.
 - **`human_review_appropriateness`** (10%) — Gemini.
 
-`evaluator` field is now `"gemini+deterministic"` (was `"gemini"` before commit `bd77c33`). `overall_score` is recomputed server-side after the deterministic override using the 40/30/20/10 weights. `score_label` and `needs_escalation` are also refreshed after the override.
+`evaluator` field is `"gemini+deterministic"`. Two of the four dimensions are now overridden server-side in `pages/api/evaluate.js`; Gemini still returns values for all four but `sop_accuracy` and `extraction_completeness` get replaced before the response is sent. `overall_score` is recomputed using the 40/30/20/10 weights after both overrides; `score_label` and `needs_escalation` are also refreshed.
 
 **Why deterministic for `sop_accuracy`:** through multiple prompt iterations Gemini kept scoring this dimension below 1.0 with reason text that *explicitly praised* the analyzer's output — exactly the praise-then-deduct violation the prompt forbade. Gemini's numeric output doesn't bind to prompt rules reliably enough for a clinical routing score. The deterministic scorer encodes the three named penalty grounds from the prompt and runs every time:
 1. **Case_status mismatch:** any finding whose `status` doesn't match its SOP's `case_status` in `sops.json` → -0.3 each.
@@ -193,7 +193,21 @@ The whole handler is wrapped in a try/catch that converts any unhandled exceptio
 
 Floor at 0, ceiling at 1. The fourth ground from the prompt ("rule missing despite explicit transcript evidence") is fuzzy and left to the analyzer's Patient Certainty Rule; the deterministic check doesn't try to second-guess that.
 
-`sop_accuracy.reason` text from the deterministic scorer is recognizable: it either lists specific violations *with the SOP id and field name* or reads `"All fired rules carry correct case_status, the overall disposition equals the case_status of the lowest-priority-number finding, and no rule fired on null required_flag values. Deterministic check."` If you see this text, the override fired. If you see Gemini-style praise prose with a sub-1.0 score, the deployment is stale.
+**Why deterministic for `extraction_completeness`:** same praise-then-deduct failure mode. Gemini repeatedly penalized null flags using `extraction_metadata.null_flag_count` as the signal — but short transcripts that only cover a few topics legitimately produce many nulls (e.g. Bob's PT+opioids call never mentions dental or smoking, so those flags are correctly null). The deterministic scorer encodes the actual rule: a null is only a penalty when the transcript contains evidence the topic WAS raised.
+
+For each flag applicable to the patient's `case_type` (general flags always apply; joint/bariatric flags gated by `case_type` from extraction or CRM), the scorer:
+1. Reads the flag value from `extraction.clinical_flags`.
+2. If non-null, no penalty — skip.
+3. If null, tests the transcript against a per-flag keyword regex (e.g. `active_smoker` → `/smoke|smoker|smoking|cigarette|tobacco|vape|nicotine/i`).
+4. If the keyword matches, the null is unjustified → -0.2.
+
+Score: 1.0 baseline; floor 0, ceiling 1. Keyword map and applicability lists live at the top of `lib/score-extraction-completeness.js` — keep in sync with `schemas/extraction-schema.json` if you add flags.
+
+**Recognizable reason text** — both deterministic scorers produce reason text that's distinct from Gemini prose:
+- `sop_accuracy`: either lists specific violations *with the SOP id and field name* or reads `"All fired rules carry correct case_status, ... Deterministic check."`
+- `extraction_completeness`: either lists unjustified-null flag names by extraction key or reads `"Every applicable flag is either populated or its topic was never raised in the transcript. Deterministic check."`
+
+If you see this text, the override fired. If you see Gemini-style prose with a sub-1.0 score on either dimension, the deployment is stale.
 
 The frontend uses `sop_accuracy.score` for the Recommendation header pill and `next_step_actionability.score` for the Next Steps header pill (scaled ×100; color bands red 0-50 / yellow 51-75 / green 76-100). The full breakdown renders in the Evaluation card — positioned **immediately after the Next Steps card** (which ends with the draft patient email), and before the Triggered SOP Findings card. A red **Escalation recommended** banner appears when `needs_escalation` is true.
 
@@ -305,7 +319,8 @@ To change SOP content, edit `sops.json` in the repo and push — `main` auto-dep
 | `lib/extract.js` | Anthropic API call for structured flag extraction; reads `schemas/extraction-schema.json` at request time so schema edits go live without a redeploy. 50s timeout, `max_tokens: 4000`, safe-fallback on parse failure. |
 | `lib/preflight.js` | Anthropic API call for the upload gate — returns `is_clinical_transcript` + `detected_language`. Input capped at 4000 chars; 15s timeout. |
 | `lib/draft-email.js` | Anthropic API call that drafts the patient email from `COPIED_STEP_MESSAGES`. Returns STRICT JSON `{ subject, body }`. 30s timeout, `max_tokens: 1000`. |
-| `lib/evaluate-gemini.js` | Gemini API call for the three qualitative evaluator dimensions (extraction_completeness, next_step_actionability, human_review_appropriateness). Default model `gemini-2.5-flash-lite` (free-tier-0 traps on `gemini-2.0-flash` for new keys). 25s timeout. **`sop_accuracy` is deterministic and overrides Gemini's value in `pages/api/evaluate.js`.** |
+| `lib/evaluate-gemini.js` | Gemini API call for the four evaluator dimensions. Default model `gemini-2.5-flash-lite` (free-tier-0 traps on `gemini-2.0-flash` for new keys). 25s timeout. **`sop_accuracy` AND `extraction_completeness` are deterministic and override Gemini's values in `pages/api/evaluate.js`** — only `next_step_actionability` and `human_review_appropriateness` reach the response as Gemini-judged. |
+| `lib/score-extraction-completeness.js` | Deterministic `extraction_completeness` scorer. Per-flag keyword regex; -0.2 for each null flag whose topic keyword appears in the transcript. Topics never raised in the transcript → null is correct → no penalty. Gated by `case_type` so joint cases aren't checked against bariatric flags and vice versa. Replaces Gemini's judgment for this dimension. |
 | `lib/score-sop-accuracy.js` | Deterministic `sop_accuracy` scorer. Encodes the three concrete penalty grounds: case_status mismatch (-0.3 each), disposition mismatch (-0.3), null-flag firing (-0.4 each). Clean output scores 1.0. Replaces Gemini's judgment for this dimension. |
 | `public/app.html` | Single-page UI. CDN libraries (mammoth, pdf.js) lazy-loaded only for `.docx`/`.pdf` upload. Hosts all client-side edge-case handling, Agree/Disagree gate, per-step Copy Message, draft email. Analyzer view uses `container.full` (no side panel — the Engine Status side card was removed). |
 | `server.ps1` | PowerShell `HttpListener` backend — Windows local-only, parity with Next.js except missing `/api/preflight` and `/api/extract`. |
