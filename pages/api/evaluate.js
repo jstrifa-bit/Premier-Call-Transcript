@@ -1,5 +1,8 @@
 import { invokeGeminiEvaluation } from "../../lib/evaluate-gemini.js";
 import { scoreSopAccuracy } from "../../lib/score-sop-accuracy.js";
+import { scoreExtractionCompleteness } from "../../lib/score-extraction-completeness.js";
+import { scoreHumanReview } from "../../lib/score-human-review.js";
+import { scoreNextStepActionability } from "../../lib/score-next-step-actionability.js";
 import { readSops } from "../../lib/data.js";
 
 export const config = { api: { bodyParser: { sizeLimit: "2mb" } } };
@@ -20,6 +23,7 @@ export default async function handler(req, res) {
     // ground named. The deterministic check encodes every valid penalty
     // ground from the prompt; if none triggers, the score is 1.0.
     const evaluation = { ...(result.evaluation || {}) };
+    let sopAccuracyScore = evaluation.sop_accuracy?.score;
     try {
       const sops = (readSops().rules || []);
       const deterministic = scoreSopAccuracy({
@@ -29,27 +33,66 @@ export default async function handler(req, res) {
         sops
       });
       evaluation.sop_accuracy = deterministic;
+      sopAccuracyScore = deterministic.score;
+    } catch (deterErr) {
+      console.warn("Deterministic sop_accuracy override failed:", deterErr.message);
+    }
 
-      // Recompute overall_score with the corrected sop_accuracy
-      // (40% / 30% / 20% / 10% weights per the system prompt).
-      const ec = evaluation.extraction_completeness?.score;
-      const ns = evaluation.next_step_actionability?.score;
-      const hr = evaluation.human_review_appropriateness?.score;
-      if (typeof ec === "number" && typeof ns === "number" && typeof hr === "number") {
-        const overall = 0.4 * deterministic.score + 0.3 * ec + 0.2 * ns + 0.1 * hr;
-        evaluation.overall_score = Math.round(overall * 100) / 100;
-        evaluation.score_label = overall >= 0.76 ? "High" : overall >= 0.51 ? "Medium" : "Low";
-      }
-      // Re-evaluate escalation: original rule was sop_accuracy < 0.6 OR
-      // extraction_completeness < 0.5. Update needs_escalation if our
-      // deterministic sop_accuracy disagrees with Gemini's prior call.
-      const needsEsc = deterministic.score < 0.6 || (typeof ec === "number" && ec < 0.5);
+    // Separate try so a throw here cannot leave us with mixed
+    // deterministic-sop + Gemini-extraction values.
+    try {
+      const deterministicEc = scoreExtractionCompleteness({
+        extraction: body.extraction,
+        transcript: body.transcript,
+        case_type: body.case_type || body.crm_record?.case_type
+      });
+      evaluation.extraction_completeness = deterministicEc;
+    } catch (ecErr) {
+      console.warn("Deterministic extraction_completeness override failed:", ecErr.message);
+    }
+
+    // Deterministic human_review_appropriateness — Gemini repeatedly
+    // downgraded this dimension on review_reason prose quality even
+    // when the boolean flag was correctly set. Judge the flag, not
+    // the prose.
+    try {
+      const deterministicHr = scoreHumanReview({
+        extraction: body.extraction,
+        findings: body.findings
+      });
+      evaluation.human_review_appropriateness = deterministicHr;
+    } catch (hrErr) {
+      console.warn("Deterministic human_review override failed:", hrErr.message);
+    }
+
+    // Deterministic next_step_actionability — scores against the
+    // structural contract from the analyze prompt ([SOP-ID] per finding,
+    // disposition tail, documentation step at end) rather than Gemini's
+    // prose impression of "specificity."
+    try {
+      const deterministicNs = scoreNextStepActionability({
+        findings: body.findings,
+        next_steps: body.next_steps
+      });
+      evaluation.next_step_actionability = deterministicNs;
+    } catch (nsErr) {
+      console.warn("Deterministic next_step_actionability override failed:", nsErr.message);
+    }
+
+    // Recompute overall_score and escalation using whatever values are now in evaluation.
+    const sa = evaluation.sop_accuracy?.score;
+    const ec = evaluation.extraction_completeness?.score;
+    const ns = evaluation.next_step_actionability?.score;
+    const hr = evaluation.human_review_appropriateness?.score;
+    if ([sa, ec, ns, hr].every(v => typeof v === "number")) {
+      const overall = 0.4 * sa + 0.3 * ec + 0.2 * ns + 0.1 * hr;
+      evaluation.overall_score = Math.round(overall * 100) / 100;
+      evaluation.score_label = overall >= 0.76 ? "High" : overall >= 0.51 ? "Medium" : "Low";
+      const needsEsc = sa < 0.6 || ec < 0.5;
       if (needsEsc !== evaluation.needs_escalation) {
         evaluation.needs_escalation = needsEsc;
         if (!needsEsc) evaluation.escalation_reason = null;
       }
-    } catch (deterErr) {
-      console.warn("Deterministic sop_accuracy override failed:", deterErr.message);
     }
 
     res.status(200).json({
