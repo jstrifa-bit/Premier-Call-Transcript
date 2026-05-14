@@ -3,6 +3,21 @@ import { invokeClaudeAnalysis } from "../../lib/analyze-claude.js";
 import { invokeExtraction } from "../../lib/extract.js";
 import { findCrmByQuery, findCrmFromTranscript, readSops } from "../../lib/data.js";
 
+// Infer case_type from the transcript when no CRM record is matched.
+// Without this, applies_to gating silently strips joint/bariatric SOPs
+// for any patient not in crm.json (e.g. Jim K. knee replacement: knee
+// SOPs were skipped because case_type was unknown).
+const JOINT_PATTERN = /\b(knee|hip|shoulder|joint|TKR|THR|arthroplasty|replacement)\b/i;
+const BARIATRIC_PATTERN = /\b(sleeve|bypass|bariatric|gastric|lap[- ]?band|weight[- ]loss surgery)\b/i;
+function inferCaseTypeFromTranscript(transcript) {
+  if (!transcript) return null;
+  const j = JOINT_PATTERN.test(transcript);
+  const b = BARIATRIC_PATTERN.test(transcript);
+  if (j && !b) return "joint";
+  if (b && !j) return "bariatric";
+  return null;
+}
+
 export const config = { api: { bodyParser: { sizeLimit: "2mb" } } };
 
 // Patient-friendly labels for missing flags used when drafting the
@@ -105,6 +120,10 @@ export default async function handler(req, res) {
 
     let crm = findCrmByQuery({ name: patient_name, patient_id });
     if (!crm) crm = findCrmFromTranscript(transcript);
+    if (!crm) {
+      const inferred = inferCaseTypeFromTranscript(transcript);
+      if (inferred) crm = { case_type: inferred, __inferred: true };
+    }
 
     const hasClaude = !!process.env.ANTHROPIC_API_KEY;
     const analysisPromise = hasClaude
@@ -146,7 +165,7 @@ export default async function handler(req, res) {
       ok: true,
       engine: result.engine,
       model: result.model,
-      crm_record: crm,
+      crm_record: crm?.__inferred ? null : crm,
       patient_summary: result.patient_summary,
       recommendation: result.recommendation,
       findings: post.findings,
