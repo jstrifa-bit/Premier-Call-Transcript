@@ -373,12 +373,9 @@
   <!-- ---------- SOP Library view ---------- -->
   <div id="view-sops" class="container full hidden">
     <div class="card">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap: 12px; margin-bottom: 12px;">
-        <div>
-          <h2 style="margin:0;">SOP Library</h2>
-          <div class="muted" style="font-size:13px;">Edit, add, or remove the protocols the analyzer uses.</div>
-        </div>
-        <button class="btn" onclick="openSopEditor(null)">+ Add SOP</button>
+      <div style="margin-bottom: 12px;">
+        <h2 style="margin:0;">SOP Library</h2>
+        <div class="muted" style="font-size:13px;">Read-only view of the protocols the analyzer uses.</div>
       </div>
       <div class="sop-grid" id="sopGrid"></div>
     </div>
@@ -435,34 +432,7 @@
   </div>
 </div>
 
-<!-- ---------- SOP edit modal ---------- -->
-<div class="modal-bg" id="sopModal">
-  <div class="modal">
-    <h2 id="sopModalTitle">Edit SOP</h2>
-    <div class="grid2">
-      <div class="field"><label>ID (e.g. JNT-005)</label><input id="ed_id" /></div>
-      <div class="field"><label>Category</label>
-        <select id="ed_category">
-          <option>General</option><option>Bariatric</option><option>Joint</option><option>Spine</option><option>Cardiac</option>
-        </select>
-      </div>
-      <div class="field"><label>Case Status</label>
-        <select id="ed_status">
-          <option>Ineligible</option><option>Deferred</option><option>High Complexity</option><option>Review</option><option>Revision Case</option><option>Hold</option><option>Action Required</option>
-        </select>
-      </div>
-      <div class="field"><label>Applies to (comma-separated, lowercase)</label><input id="ed_applies_to" placeholder="joint, bariatric" /></div>
-    </div>
-    <div class="field"><label>Finding (when triggered)</label><input id="ed_finding" placeholder="No Endoscopy (EGD) in last 3 months" /></div>
-    <div class="field"><label>Action</label><textarea id="ed_action" style="min-height:60px;"></textarea></div>
-    <div class="field"><label>Required flags (comma-separated)</label><input id="ed_flags" placeholder="endoscopy_within_3_months" /></div>
-    <div class="field"><label>Trigger logic</label><textarea id="ed_trigger" style="min-height:60px;" placeholder="endoscopy_within_3_months == false"></textarea></div>
-    <div class="modal-foot">
-      <button class="btn ghost" onclick="closeSopEditor()">Cancel</button>
-      <button class="btn" id="ed_save" onclick="onSaveSop()">Save</button>
-    </div>
-  </div>
-</div>
+<!-- SOP edit modal removed - SOP Library is read-only. -->
 
 <div class="toast" id="toast"></div>
 
@@ -472,7 +442,6 @@ let CURRENT_USER = null;
 let CURRENT_CRM = null;
 let SOPS = [];
 let LAST_RESULT = null;
-let EDITING_SOP_ID = null;
 let STEP_STATE = []; // [{ vote: null|'up'|'down', done: false }]
 let COPIED_STEP_MESSAGES = []; // [{stepIndex, sopId, stepText, message}] - captured per analysis
 let ACTIVE_STEP_DOWN_INDEX = -1; // which step is the open step-down modal annotating
@@ -1421,52 +1390,11 @@ function renderSopGrid(){
       <div class="meta">${escapeHtml(s.category)} - applies to: ${escapeHtml((s.applies_to||[]).join(", "))}</div>
       <p><strong>Action:</strong> ${escapeHtml(s.action || "")}</p>
       <p class="muted" style="font-family:ui-monospace,monospace; font-size:11px;">${escapeHtml(s.trigger_logic || "")}</p>
-      <div class="actions">
-        <button class="btn secondary small" onclick="openSopEditor('${escapeHtml(s.id)}')">Edit</button>
-        <button class="btn ghost small" onclick="onDeleteSop('${escapeHtml(s.id)}')" style="color:var(--red);">Delete</button>
-      </div>
     </div>`).join("");
 }
-function openSopEditor(id){
-  EDITING_SOP_ID = id;
-  const s = id ? SOPS.find(x => x.id === id) : { id:"", category:"General", case_status:"Action Required", applies_to:[], finding:"", action:"", required_flags:[], trigger_logic:"" };
-  if (!s) return;
-  $("sopModalTitle").textContent = id ? "Edit SOP "+id : "Add SOP";
-  $("ed_id").value = s.id; $("ed_id").disabled = !!id;
-  $("ed_category").value = s.category || "General";
-  $("ed_status").value = s.case_status || "Action Required";
-  $("ed_applies_to").value = (s.applies_to || []).join(", ");
-  $("ed_finding").value = s.finding || "";
-  $("ed_action").value = s.action || "";
-  $("ed_flags").value = (s.required_flags || []).join(", ");
-  $("ed_trigger").value = s.trigger_logic || "";
-  $("sopModal").classList.add("show");
-}
-function closeSopEditor(){ $("sopModal").classList.remove("show"); EDITING_SOP_ID = null; }
-async function onSaveSop(){
-  const id = $("ed_id").value.trim();
-  if (!id) { toast("ID is required"); return; }
-  const body = {
-    id,
-    category: $("ed_category").value,
-    case_status: $("ed_status").value,
-    applies_to: $("ed_applies_to").value.split(",").map(s=>s.trim().toLowerCase()).filter(Boolean),
-    finding: $("ed_finding").value.trim(),
-    action: $("ed_action").value.trim(),
-    required_flags: $("ed_flags").value.split(",").map(s=>s.trim()).filter(Boolean),
-    trigger_logic: $("ed_trigger").value.trim()
-  };
-  const url = EDITING_SOP_ID ? "/api/sops/"+encodeURIComponent(EDITING_SOP_ID) : "/api/sops";
-  const method = EDITING_SOP_ID ? "PUT" : "POST";
-  const r = await api(url, { method, body: JSON.stringify(body) });
-  if (r.ok) { toast(EDITING_SOP_ID ? "SOP updated" : "SOP added"); closeSopEditor(); refreshSops(); }
-  else toast("Error: "+(r.error||"unknown"));
-}
-async function onDeleteSop(id){
-  if (!confirm("Delete SOP "+id+"?")) return;
-  const r = await api("/api/sops/"+encodeURIComponent(id), { method: "DELETE" });
-  if (r.ok) { toast("Deleted "+id); refreshSops(); }
-}
+// SOP editor functions removed - SOP Library is read-only.
+// The /api/sops POST/PUT/DELETE endpoints still exist on the server
+// (they return 503 on Vercel anyway) but nothing in the UI calls them.
 </script>
 </body>
 </html>
