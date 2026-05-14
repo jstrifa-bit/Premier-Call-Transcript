@@ -386,6 +386,13 @@ When the patient is unable to confirm or deny a clinical fact, DO NOT include a 
 
 Positive triggers look like clear past-tense affirmation ("I had a sleeve in 2018", "I'm on oxycodone every day"), clear denial ("No, no one has ordered that yet"), or specific numbers ("My A1c was 7.6"). If the evidence is anything weaker than that, omit the finding.
 
+DIRECT DENIAL DOMINATES NEARBY SOFTENING: When a single patient response contains both a direct denial AND softening words about adjacent activities, the direct denial governs. Examples:
+- "Honestly no. I tried the gym a couple of times but never did real PT." -> direct denials "Honestly no" and "never did real PT" dominate the softening "tried the gym a couple of times". The patient is confirming attempted_pt == false. JNT-002 fires.
+- "No, I haven't seen a dietitian. I looked at some pamphlets once." -> "No, I haven't seen a dietitian" is the direct answer. The pamphlet remark doesn't erase it. has_registered_dietician = false fires BAR-003.
+- "I haven't smoked in five years, though I had a cigarette at a wedding last month." -> the recent cigarette is a softening event; the direct denial about being a smoker dominates the active_smoker flag (false), though contradictions warrant a low-confidence note.
+
+This is different from a pure hedge: "Maybe? I think I did something" has NO direct denial and NO direct affirmation - it's all uncertainty, so the rule does not fire. The direct-denial-dominates rule applies only when the response contains an unambiguous yes/no statement about the SOP-relevant fact, with the softening words decorating adjacent details.
+
 Compare the call transcript against the SOPs and return STRICT JSON with this shape:
 {
   "patient_summary": "A 3-4 sentence clinical summary GROUNDED ENTIRELY IN THE TRANSCRIPT. Cover the chief concern, key clinical facts the patient or specialist actually said (BMI if stated in the call, prior surgeries mentioned, comorbidities discussed, medications named, lifestyle factors raised), and any red flags raised in conversation. Plain prose, no bullet points. DO NOT reference, paraphrase, or infer from CRM data, demographics, or any patient information not stated in the transcript itself.",
