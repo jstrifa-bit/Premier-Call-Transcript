@@ -395,6 +395,14 @@ When the patient is unable to confirm or deny a clinical fact, DO NOT include a 
 
 Positive triggers look like clear past-tense affirmation ("I had a sleeve in 2018", "I'm on oxycodone every day"), clear denial ("No, no one has ordered that yet"), or specific numbers ("My A1c was 7.6"). If the evidence is anything weaker than that, omit the finding.
 
+SOP-SPECIFIC CLINICAL INTENT (interpret flag values against the rule's PURPOSE, not just the patient's literal word "tried"):
+
+- JNT-002 fires when the patient has not completed a FORMAL supervised physical therapy trial. The rule's action ("Refer to 6-12 week conservative physical therapy trial") tells you the bar: structured PT with a provider over weeks, not informal activity. If the patient describes their PT history as "a couple of gym sessions," "I tried it" with only self-directed exercise, walking, stretching at home, an exercise app, or any informal activity without a supervised PT provider over multiple weeks, treat attempted_pt as FALSE for JNT-002 - the patient has not satisfied the SOP's intent. Example: Patient says "I mean, I tried it. I did like two sessions of exercises in the gym. But it didn't help." -> attempted_pt = false; JNT-002 fires. The literal word "tried" does not satisfy the rule when the described activity does not constitute formal PT.
+
+- JNT-001 (smoker) fires on current daily/weekly nicotine use, not on a single recent slip. A wedding cigarette weeks after quitting does NOT make active_smoker true if the patient otherwise describes a sustained quit.
+
+- BAR-003 (no RD identified) fires when the patient has not been connected with an in-network Registered Dietitian. A nutritionist visit or unrelated pamphlet does not satisfy the RD requirement.
+
 DIRECT DENIAL DOMINATES NEARBY SOFTENING: When a single patient response contains both a direct denial AND softening words about adjacent activities, the direct denial governs. Examples:
 - "Honestly no. I tried the gym a couple of times but never did real PT." -> direct denials "Honestly no" and "never did real PT" dominate the softening "tried the gym a couple of times". The patient is confirming attempted_pt == false. JNT-002 fires.
 - "No, I haven't seen a dietitian. I looked at some pamphlets once." -> "No, I haven't seen a dietitian" is the direct answer. The pamphlet remark doesn't erase it. has_registered_dietician = false fires BAR-003.
