@@ -150,13 +150,18 @@ Each SOP has a hand-written guardrail block in `evaluateRule` / `Invoke-LocalAna
 After ANY change to the heuristic, re-run all 3 sample transcripts and confirm the table above still holds.
 
 ### Claude prompt / response handling
-The system prompt in `lib/analyze-claude.js` (mirrored in `server.ps1`) is load-bearing in six ways:
-1. **Strict no-CRM/EHR grounding.** A top-of-prompt rule forbids any reference to CRM/EHR data, demographics, or facts not in the transcript. Phrasings like "per CRM" / "per EHR" / "based on the patient profile" are banned by name. The user message intentionally passes ONLY `case_type` — full CRM fields are NEVER fed to the LLM.
-2. **Patient Certainty Rule** — a finding fires ONLY when the patient's response provides direct, confirmed evidence. Patient hedges are explicitly listed as non-triggering: "maybe", "possibly", "I think", "I'm not sure", "I don't know", "I can't remember", "I don't recall", "I did some stuff", "something", "a while back", "a while ago", "at some point". The specialist asking the question is not the patient's confirmation. An empty findings array is the CORRECT output for ambiguous calls; producing a finding with hedged evidence is a routing error. Without this rule the analyzer over-fired on Daniel-style cases (patient unable to confirm anything, but Claude produced four findings with "Maybe?" as evidence). Positive triggers must look like clear past-tense affirmation, clear denial, or specific numbers ("I had a sleeve in 2018", "No, no one has ordered that yet", "My A1c was 7.6").
-3. **`applies_to` gating** — the prompt instructs Claude to skip rules whose `applies_to` doesn't include the patient's case_type.
-4. **Strict priority enforcement** — disposition priority is given as a numbered list with explicit instructions: "take the status of EVERY finding, look up its number, pick the LOWEST, copy verbatim." Without this, Claude tended to pick the *last-mentioned* status instead of the most-blocking one (e.g., Hold instead of Revision Case for Sarah).
-5. **`next_steps` ordering instruction** — Claude must write `next_steps` *last*, deriving each step from the already-written `patient_summary` and `recommendation`, sequenced in priority order, with the documentation step pinned to the end.
-6. **Robust JSON extraction** — the response parser locates the outermost `{...}` and parses that, instead of just stripping code fences. Claude sometimes wraps JSON in prose; the simpler approach broke with `Invalid JSON primitive: ..`. Don't simplify back to fence-stripping.
+The system prompt in `lib/analyze-claude.js` (mirrored in `server.ps1`) is load-bearing in ten ways. **All Anthropic calls (analyze, extract) run at `temperature: 0`** for determinism — same transcript must produce the same output. Don't reintroduce default temperature; the smoke tests depend on this.
+
+1. **No CRM/EHR grounding + no invented clinical facts.** A top-of-prompt rule forbids any reference to CRM/EHR data, demographics, or facts not in the transcript. Two sub-prohibitions: (a) never invent name/age/sex/location/BMI/primary_dx unless explicitly stated; (b) never invent clinical history (DVT, comorbidities, prior procedures, allergies, lab values, risk factors not mentioned). The universal closing rule: *every concrete clinical detail in your output must be traceable to a specific sentence in the transcript*. Past failure mode: the analyzer kept hallucinating a "historical DVT" mention that wasn't in Bob's transcript.
+2. **Patient Certainty Rule** — a finding fires ONLY on direct, confirmed evidence. Hedges ("maybe", "I think", "I'm not sure", "I don't know", "I can't remember", "I did some stuff", "a while back") are explicitly non-triggering. Empty findings array is the CORRECT output for ambiguous calls. Daniel-style hedge calls now produce zero findings → post-process routes them to Pending.
+3. **Direct denial dominates nearby softening** — when one response contains both a direct denial AND softening words about adjacent activities ("Honestly no... I tried the gym a couple of times but never did real PT"), the direct denial governs. The patient is confirming `attempted_pt == false` and JNT-002 fires. Distinguish from pure hedges (no direct yes/no anywhere) which still don't fire.
+4. **SOP-specific clinical intent** — read flag values against the rule's PURPOSE, not just the patient's literal words. JNT-002 fires when the patient has not completed a *formal supervised PT trial*: informal exercise / a few gym sessions / self-directed activity → `attempted_pt = false` for SOP purposes (the rule's action says "Refer to 6-12 week conservative PT trial" — informal activity doesn't satisfy that bar). Symmetric clarifications cover JNT-001 (a single recent slip ≠ active smoker if quit otherwise sustained) and BAR-003 (a nutritionist or pamphlet ≠ Registered Dietitian).
+5. **`applies_to` gating** — the prompt instructs Claude to skip rules whose `applies_to` doesn't include the patient's case_type.
+6. **Strict priority enforcement** — disposition priority is given as a numbered list with explicit instructions: "take the status of EVERY finding, look up its number, pick the LOWEST, copy verbatim." Without this, Claude picked the *last-mentioned* status instead of the most-blocking one.
+7. **Consistency rule (findings ↔ recommendation ↔ disposition)** — every SOP id in `recommendation` or `patient_summary` MUST appear in `findings[]`, and vice versa. `overall_disposition.status` is computed from `findings` alone via the priority rule, never from rules described only in prose. Without this, the analyzer described "two SOPs fire" while the structured findings only listed one.
+8. **`next_steps` requires one entry per finding** — for EVERY entry in findings, produce one step prefixed with its SOP id in brackets. A finding without a corresponding `[SOP-ID]` step is a routing error. Two findings produce two SOP-prefixed steps even when one drives the disposition. The disposition tail step and documentation step come AFTER all SOP-prefixed steps.
+9. **`next_steps` ordering** — Claude must write `next_steps` *last*, deriving each step from the already-written `patient_summary` / `recommendation`, sequenced in priority order, with the documentation step pinned to the end.
+10. **Robust JSON extraction** — the response parser locates the outermost `{...}` and parses that, instead of just stripping code fences. Claude sometimes wraps JSON in prose; the simpler approach broke with `Invalid JSON primitive: ..`. Don't simplify back to fence-stripping.
 
 ### Incomplete-transcript post-process (Next.js only)
 `pages/api/analyze.js` runs `applyIncompleteTranscriptRule` after both engines resolve. The current design treats the analyzer's findings as **authoritative** — they come from direct transcript evidence with quotes. The extractor's flag state is informational, not subtractive. Behavior:
@@ -174,14 +179,25 @@ The whole handler is wrapped in a try/catch that converts any unhandled exceptio
 
 ### Gemini evaluator (4-dimension QA scoring)
 `/api/evaluate` returns `{ ok, evaluator, model, evaluation }` where `evaluation` carries four named dimensions (0.0–1.0 floats):
-- **`sop_accuracy`** (40% weight) — did the recommendation correctly apply the SOP rules?
-- **`extraction_completeness`** (30%) — were clinical flags extracted accurately?
-- **`next_step_actionability`** (20%) — are next steps specific, prioritized, SOP-tied?
-- **`human_review_appropriateness`** (10%) — is `requires_human_review` set correctly?
+- **`sop_accuracy`** (40% weight) — **DETERMINISTIC, server-side.** Computed by `lib/score-sop-accuracy.js`, NOT Gemini.
+- **`extraction_completeness`** (30%) — Gemini.
+- **`next_step_actionability`** (20%) — Gemini.
+- **`human_review_appropriateness`** (10%) — Gemini.
 
-Plus `overall_score` (weighted average), `score_label` (High / Medium / Low), `needs_escalation` (true when `sop_accuracy < 0.6` OR `extraction_completeness < 0.5`), `escalation_reason`, `evaluator_notes`. The frontend uses `sop_accuracy.score` for the Recommendation header pill and `next_step_actionability.score` for the Next Steps header pill (scaled ×100; color bands red 0-50 / yellow 51-75 / green 76-100). The full breakdown renders in the Evaluation card — positioned **immediately after the Next Steps card** (which ends with the draft patient email), and before the Triggered SOP Findings card. A red **Escalation recommended** banner appears when `needs_escalation` is true.
+`evaluator` field is now `"gemini+deterministic"` (was `"gemini"` before commit `bd77c33`). `overall_score` is recomputed server-side after the deterministic override using the 40/30/20/10 weights. `score_label` and `needs_escalation` are also refreshed after the override.
 
-**Cost note:** the evaluator user message now embeds the entire extraction JSON plus the analyze output, so it's significantly larger than the original 2-pill prompt. If you hit 429s on Gemini, the Flash-Lite quota is the most common cause.
+**Why deterministic for `sop_accuracy`:** through multiple prompt iterations Gemini kept scoring this dimension below 1.0 with reason text that *explicitly praised* the analyzer's output — exactly the praise-then-deduct violation the prompt forbade. Gemini's numeric output doesn't bind to prompt rules reliably enough for a clinical routing score. The deterministic scorer encodes the three named penalty grounds from the prompt and runs every time:
+1. **Case_status mismatch:** any finding whose `status` doesn't match its SOP's `case_status` in `sops.json` → -0.3 each.
+2. **Disposition mismatch:** `overall_disposition.status` must equal the case_status of the lowest-priority-number finding → -0.3 if violated.
+3. **Null-flag firing:** a finding whose corresponding SOP's `required_flags` include a null value in the extraction → -0.4 each.
+
+Floor at 0, ceiling at 1. The fourth ground from the prompt ("rule missing despite explicit transcript evidence") is fuzzy and left to the analyzer's Patient Certainty Rule; the deterministic check doesn't try to second-guess that.
+
+`sop_accuracy.reason` text from the deterministic scorer is recognizable: it either lists specific violations *with the SOP id and field name* or reads `"All fired rules carry correct case_status, the overall disposition equals the case_status of the lowest-priority-number finding, and no rule fired on null required_flag values. Deterministic check."` If you see this text, the override fired. If you see Gemini-style praise prose with a sub-1.0 score, the deployment is stale.
+
+The frontend uses `sop_accuracy.score` for the Recommendation header pill and `next_step_actionability.score` for the Next Steps header pill (scaled ×100; color bands red 0-50 / yellow 51-75 / green 76-100). The full breakdown renders in the Evaluation card — positioned **immediately after the Next Steps card** (which ends with the draft patient email), and before the Triggered SOP Findings card. A red **Escalation recommended** banner appears when `needs_escalation` is true.
+
+**Cost note:** the evaluator user message embeds the entire extraction JSON plus the analyze output, so it's significantly larger than the original 2-pill prompt. If you hit 429s on Gemini, the Flash-Lite quota is the most common cause.
 
 **Gemini model trap:** the default `gemini-2.0-flash` has a free-tier limit of 0 on at least some accounts. We use `gemini-2.5-flash-lite` instead via `GEMINI_MODEL` in `.env` / Vercel env. Legacy `gemini-1.5-*` names are no longer served on `v1beta` for new keys. To enumerate what's available for a key: `https://generativelanguage.googleapis.com/v1beta/models?key=...`. Frontend silently degrades to "Confidence unavailable" pills on Gemini failure — check browser console for the underlying error.
 
@@ -230,6 +246,8 @@ The auto-generated email template was replaced with a Claude-drafted flow:
 2. Clicking **Draft Email** posts to `POST /api/draft-email` ([lib/draft-email.js](lib/draft-email.js)) with `{ patient_name, case_type, disposition, copied_messages[], specialist_name }`. Claude returns STRICT JSON `{ subject, body }`. 30s `AbortController` timeout; `max_tokens: 1000`. Vercel `maxDuration: 35`.
 3. The frontend assembles `Subject: ...\n\n<body>` into an editable textarea + a **Copy Email** button. The Specialist can edit before copying.
 
+**Prompt rule worth knowing** (commit `26defb9`): every entry in `copied_messages` must render as its own bullet line — Claude is forbidden from merging two messages into one bullet, paraphrasing a message into the disposition intro paragraph, or dropping a bullet because its content overlaps the disposition framing. The disposition intro is general-purpose framing only and cannot borrow content from the copied messages. The only allowed dedup is two messages referencing the exact same SOP id with identical text. Past failure: Bob's "notify patient of ineligibility" message was being absorbed into the intro paragraph, leaving only the PT bullet visible.
+
 `COPIED_STEP_MESSAGES` resets in `renderResults` for each new analysis, so the email always reflects the *current* case. `onCopyEmail` reads the textarea (not the original draft) so edits survive the copy.
 
 Both copy actions use `navigator.clipboard.writeText`, which requires HTTPS or `localhost` (works on Vercel and `npm run dev`). The whole Next Steps card — including the Draft Email block — is gated by the recommendation Agree/Disagree decision and only appears after the Specialist clicks Agree.
@@ -266,9 +284,13 @@ Three explicit UTF-8 boundaries in `server.ps1` (any one of them defaulting back
 
 The Anthropic catch block reads `$_.Exception.Response.GetResponseStream()` to surface the real error body. Don't strip it out.
 
-## SOP editor → file persistence
+## SOP Library — read-only in the UI
 
-`POST /api/sops`, `PUT /api/sops/{id}`, `DELETE /api/sops/{id}` all rewrite `sops.json` via `Save-Sops` / `writeSops`, mutating the `rules` array in place. There is no DB and no migration — the JSON file is the source of truth. If you're worried about overwrites during local dev, back up `sops.json` first. On Vercel these routes return 503 because the filesystem is read-only.
+The **SOP Library tab is view-only** (commit `33309e6`). The Add SOP button, per-card Edit/Delete buttons, the SOP edit modal, and the `openSopEditor` / `onSaveSop` / `onDeleteSop` JS were all removed. The grid still renders each rule's id, status badge, finding, category + applies_to, action, and trigger_logic — but no mutation surface.
+
+The CRUD route handlers (`POST /api/sops`, `PUT /api/sops/{id}`, `DELETE /api/sops/{id}`) still exist in `pages/api/sops/*` and still call `writeSops` (`lib/data.js`) which throws `READONLY` when `process.env.VERCEL` is set. Nothing in the UI currently invokes them. Re-introducing SOP editing would mean re-adding the UI; the server side is dormant but intact.
+
+To change SOP content, edit `sops.json` in the repo and push — `main` auto-deploys.
 
 ## Files
 
@@ -283,7 +305,8 @@ The Anthropic catch block reads `$_.Exception.Response.GetResponseStream()` to s
 | `lib/extract.js` | Anthropic API call for structured flag extraction; reads `schemas/extraction-schema.json` at request time so schema edits go live without a redeploy. 50s timeout, `max_tokens: 4000`, safe-fallback on parse failure. |
 | `lib/preflight.js` | Anthropic API call for the upload gate — returns `is_clinical_transcript` + `detected_language`. Input capped at 4000 chars; 15s timeout. |
 | `lib/draft-email.js` | Anthropic API call that drafts the patient email from `COPIED_STEP_MESSAGES`. Returns STRICT JSON `{ subject, body }`. 30s timeout, `max_tokens: 1000`. |
-| `lib/evaluate-gemini.js` | Gemini API call for the 4-dimension QA evaluator. Default model `gemini-2.5-flash-lite` (free-tier-0 traps on `gemini-2.0-flash` for new keys). 25s timeout. |
+| `lib/evaluate-gemini.js` | Gemini API call for the three qualitative evaluator dimensions (extraction_completeness, next_step_actionability, human_review_appropriateness). Default model `gemini-2.5-flash-lite` (free-tier-0 traps on `gemini-2.0-flash` for new keys). 25s timeout. **`sop_accuracy` is deterministic and overrides Gemini's value in `pages/api/evaluate.js`.** |
+| `lib/score-sop-accuracy.js` | Deterministic `sop_accuracy` scorer. Encodes the three concrete penalty grounds: case_status mismatch (-0.3 each), disposition mismatch (-0.3), null-flag firing (-0.4 each). Clean output scores 1.0. Replaces Gemini's judgment for this dimension. |
 | `public/app.html` | Single-page UI. CDN libraries (mammoth, pdf.js) lazy-loaded only for `.docx`/`.pdf` upload. Hosts all client-side edge-case handling, Agree/Disagree gate, per-step Copy Message, draft email. Analyzer view uses `container.full` (no side panel — the Engine Status side card was removed). |
 | `server.ps1` | PowerShell `HttpListener` backend — Windows local-only, parity with Next.js except missing `/api/preflight` and `/api/extract`. |
 | `sops.json` | v2.0 SOP library under `rules[]` (8 rules: 1 General, 4 Joint, 3 Bariatric). Editable from the UI in dev only. |
