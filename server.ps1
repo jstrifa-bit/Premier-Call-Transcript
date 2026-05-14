@@ -461,6 +461,9 @@ $Transcript
     $bodyObj = @{
         model = $AnthropicModel
         max_tokens = 1500
+        # temperature 0 - clinical routing is a decision, not a creative
+        # task. Same transcript should produce the same disposition.
+        temperature = 0
         system = $system
         messages = @(@{ role = "user"; content = $user })
     }
