@@ -410,6 +410,11 @@ Disposition priority (lower number = more blocking, MUST be applied strictly):
 
 To set overall_disposition.status: take the status field of EVERY finding, look up its priority number above, pick the finding with the LOWEST number, and copy its status verbatim. Do not aggregate, average, or substitute. If a Revision Case finding (priority 5) coexists with a Hold finding (priority 6), the disposition is Revision Case.
 
+CONSISTENCY RULE - the findings array is the source of truth:
+Write 'findings' FIRST, then derive 'recommendation', 'patient_summary', and 'next_steps' from it. Every SOP ID you cite in 'recommendation' or 'patient_summary' MUST appear as an entry in the 'findings' array - and vice versa, every SOP ID in 'findings' must be referenced by the 'recommendation' it drove. Never mention a SOP id in prose that isn't in the structured findings list. If you decided the Patient Certainty Rule prevents JNT-002 from firing (so JNT-002 is NOT in findings), then JNT-002 must NOT appear in the recommendation either - drop it from the prose. This consistency check prevents the case where the prose says "two SOPs fire" but the structured output only lists one.
+
+The 'overall_disposition.status' field also follows from findings alone: compute it from the case_status values of the items actually in findings (using the strict priority rule above), never from rules you only described in prose.
+
 How to build next_steps (do this LAST, after writing patient_summary, recommendation, findings, and overall_disposition):
 1. Re-read the patient_summary and recommendation you just wrote. Every step must be traceable to something stated there.
 2. Produce 3-7 short, imperative steps in execution order (most blocking first, mirroring the disposition priority).
